@@ -46,8 +46,20 @@ cargo run -p enxame-cli -- --help
 - Testes de rede de integração: `cargo test -p enxame-core --test contacts` (sem internet).
 - NAT simulado: `scripts/netsim/netsim.sh` (ver README ali); resultados em `docs/reports/`.
 
+## Fase 2 (mensagens 1:1)
+
+- CLI: `send <contato> <texto>`, `history <contato> [-n N]`, `chat <contato>` (interativo e online).
+  `send`/`chat`/`serve` usam a identidade do diretório: não rode dois ao mesmo tempo no mesmo
+  `--data-dir`.
+- Dados em `<data_dir>/enxame.db` (SQLite, WAL). Wire e formato em `docs/protocol.md`; decisões no
+  ADR 0005. O texto das mensagens fica em claro no banco local.
+- Testes: unitários (cripto, HLC, ordem, store, sync sobre `tokio::io::duplex` com `proptest`) e
+  `cargo test -p enxame-core --test messages` (nós in-process).
+- Config nova: `sync_interval_secs` (0 desliga a sincronização automática), `dial_timeout_secs`.
+
 ## Estado
 
-- Fases 0 e 1 implementadas, aguardando revisão. Pendente da Fase 1: teste real entre duas
-  máquinas (roteiro em `docs/reports/fase1-conectividade.md`). Próxima: Fase 2 (mensagens 1:1).
+- Fases 0, 1 e 2 implementadas, aguardando revisão. A Fase 1 foi validada em campo (Linux ↔ Linux,
+  redes diferentes); Windows e 4G seguem sem teste. Pendente da Fase 2: teste real entre duas
+  máquinas (roteiro no relatório da fase). Próxima: Fase 3 (papéis, carry, nó headless).
 - Nome do projeto e `repository` no `Cargo.toml` são provisórios.

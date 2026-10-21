@@ -1,7 +1,7 @@
 //! `Enxame`: ponto de entrada da API do core (spec 3.1).
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, MutexGuard,
@@ -9,7 +9,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use iroh::{endpoint::Connection, Endpoint, EndpointAddr, EndpointId};
+use iroh::{
+    endpoint::{Connection, RecvStream, SendStream},
+    Endpoint, EndpointAddr, EndpointId,
+};
 use tokio::{
     sync::{broadcast, oneshot},
     task::JoinHandle,
@@ -17,11 +20,16 @@ use tokio::{
 
 use crate::{
     config::Config,
-    contacts::{Contact, ContactBook, ContactStatus},
-    identity::{fingerprint, unix_now, Identity, InviteTicket},
+    contacts::{self, Contact, ContactBook, ContactStatus},
+    crypto::{dm_conversation_id, Envelope, EnvelopeKind, Recipient, MAX_TEXT_BYTES},
+    hlc::{Hlc, HlcClock},
+    identity::{fingerprint, unix_now, unix_now_ms, Identity, InviteTicket},
     keystore::KeyStore,
     net::{self, NatReport, PathMetrics, PathMonitor},
+    order::order_ids,
     proto::{self, ContactMsg, Hello, ALPN_CONTACT, ALPN_SYNC, SUPPORTED_VERSIONS},
+    store::{self, Store},
+    sync::{Session, SyncStats},
     Error, Event, Result, Role,
 };
 
@@ -76,6 +84,28 @@ pub struct DiagReport {
     pub peers: Vec<PeerDiag>,
 }
 
+/// Mensagem de uma conversa, pronta para exibir.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Message {
+    pub id: [u8; 32],
+    pub from_me: bool,
+    pub author_name: String,
+    pub hlc: Hlc,
+    pub text: String,
+    /// Quando este dispositivo guardou a mensagem (ms desde a época Unix).
+    pub received_at_ms: u64,
+}
+
+/// Resultado de [`Enxame::send_text`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentMessage {
+    pub id: [u8; 32],
+    /// O par estava online e a sessão de sincronização terminou. Se `false`, a mensagem está
+    /// guardada e segue no próximo contato (`error` diz por que a sessão falhou).
+    pub synced: bool,
+    pub error: Option<String>,
+}
+
 struct PendingEntry {
     info: PendingRequest,
     decide: oneshot::Sender<bool>,
@@ -87,6 +117,9 @@ struct Inner {
     keystore_name: &'static str,
     endpoint: Endpoint,
     contacts: Mutex<ContactBook>,
+    store: Store,
+    clock: Mutex<HlcClock>,
+    active_syncs: Mutex<HashSet<[u8; 32]>>,
     events: broadcast::Sender<Event>,
     pending: Mutex<HashMap<u64, PendingEntry>>,
     next_request: AtomicU64,
@@ -95,6 +128,10 @@ struct Inner {
 impl Inner {
     fn book(&self) -> MutexGuard<'_, ContactBook> {
         self.contacts.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    fn clock(&self) -> MutexGuard<'_, HlcClock> {
+        self.clock.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     fn pending(&self) -> MutexGuard<'_, HashMap<u64, PendingEntry>> {
@@ -120,7 +157,7 @@ impl Inner {
 #[derive(Clone)]
 pub struct Enxame {
     inner: Arc<Inner>,
-    accept_task: Arc<JoinHandle<()>>,
+    tasks: Arc<Vec<JoinHandle<()>>>,
 }
 
 impl std::fmt::Debug for Enxame {
@@ -167,7 +204,10 @@ impl Enxame {
         }
         std::fs::create_dir_all(&cfg.data_dir)?;
         endpoint.set_alpns(vec![ALPN_CONTACT.to_vec(), ALPN_SYNC.to_vec()]);
-        let contacts = ContactBook::open(cfg.data_dir.join("contacts.bin"))?;
+        let store = Store::open(&cfg.data_dir.join("enxame.db"))?;
+        import_legacy_contacts(&cfg, &store)?;
+        let contacts = ContactBook::open(store.clone())?;
+        let clock = HlcClock::resume_from(store.with(|c| store::max_hlc(c))?);
         let (events, _) = broadcast::channel(64);
         let inner = Arc::new(Inner {
             cfg,
@@ -175,20 +215,28 @@ impl Enxame {
             keystore_name,
             endpoint,
             contacts: Mutex::new(contacts),
+            store,
+            clock: Mutex::new(clock),
+            active_syncs: Mutex::new(HashSet::new()),
             events,
             pending: Mutex::new(HashMap::new()),
             next_request: AtomicU64::new(1),
         });
-        let accept_task = tokio::spawn(accept_loop(inner.clone()));
+        let mut tasks = vec![tokio::spawn(accept_loop(inner.clone()))];
+        if inner.cfg.sync_interval_secs > 0 {
+            tasks.push(tokio::spawn(sync_loop(inner.clone())));
+        }
         Ok(Self {
             inner,
-            accept_task: Arc::new(accept_task),
+            tasks: Arc::new(tasks),
         })
     }
 
     /// Para de aceitar conexões e fecha o endpoint.
     pub async fn shutdown(&self) {
-        self.accept_task.abort();
+        for t in self.tasks.iter() {
+            t.abort();
+        }
         self.inner.endpoint.close().await;
     }
 
@@ -338,6 +386,116 @@ impl Enxame {
         })
     }
 
+    /// Envia uma mensagem de texto a um contato mútuo. A mensagem é guardada antes de qualquer
+    /// tentativa de rede; se o par estiver offline ela segue na próxima sincronização.
+    pub async fn send_text(&self, contact: &str, text: &str) -> Result<SentMessage> {
+        let inner = &self.inner;
+        if text.trim().is_empty() {
+            return Err(Error::Contact("mensagem vazia".into()));
+        }
+        if text.len() > MAX_TEXT_BYTES {
+            return Err(Error::Contact(format!(
+                "mensagem acima de {MAX_TEXT_BYTES} bytes"
+            )));
+        }
+        let c = inner.book().resolve(contact)?.clone();
+        if !c.is_mutual() {
+            return Err(Error::Contact(
+                "o contato ainda não aceitou (não é mútuo)".into(),
+            ));
+        }
+        let me = inner.identity.identity_pk();
+        let conv = dm_conversation_id(&me, &c.identity_pk);
+        let parents = inner.store.run(move |db| store::heads(db, &conv)).await?;
+        let hlc = inner.clock().tick(unix_now_ms());
+        let env = Envelope::create(
+            &inner.identity,
+            conv,
+            hlc,
+            parents,
+            &[
+                Recipient {
+                    identity_pk: c.identity_pk,
+                    enc_pk: c.enc_pk,
+                },
+                Recipient {
+                    identity_pk: me,
+                    enc_pk: inner.identity.enc_pk(),
+                },
+            ],
+            EnvelopeKind::Text,
+            text.as_bytes(),
+        )?;
+        let id = env.id;
+        let plain = text.as_bytes().to_vec();
+        inner
+            .store
+            .run(move |db| store::envelope_insert(db, &env, Some(&plain), true, unix_now_ms()))
+            .await?;
+        match sync_with(inner, &c).await {
+            Ok(_) => Ok(SentMessage {
+                id,
+                synced: true,
+                error: None,
+            }),
+            Err(e) => {
+                tracing::debug!("mensagem guardada, par inacessível: {e}");
+                Ok(SentMessage {
+                    id,
+                    synced: false,
+                    error: Some(e.to_string()),
+                })
+            }
+        }
+    }
+
+    /// Sincroniza a conversa com um contato mútuo agora.
+    pub async fn sync_now(&self, contact: &str) -> Result<SyncStats> {
+        let c = self.inner.book().resolve(contact)?.clone();
+        if !c.is_mutual() {
+            return Err(Error::Contact(
+                "o contato ainda não aceitou (não é mútuo)".into(),
+            ));
+        }
+        sync_with(&self.inner, &c).await
+    }
+
+    /// Últimas `limit` mensagens da conversa com `contact`, na ordem de exibição (topológica
+    /// por `parents`, desempate por HLC e id).
+    pub async fn history(&self, contact: &str, limit: usize) -> Result<Vec<Message>> {
+        let inner = &self.inner;
+        let c = inner.book().resolve(contact)?.clone();
+        let conv = dm_conversation_id(&inner.identity.identity_pk(), &c.identity_pk);
+        let all = inner
+            .store
+            .run(move |db| store::conversation_envelopes(db, &conv))
+            .await?;
+        let order = order_ids(&all.iter().map(|s| s.order_item()).collect::<Vec<_>>());
+        let by_id: HashMap<[u8; 32], &store::StoredEnvelope> =
+            all.iter().map(|s| (s.envelope.id, s)).collect();
+        let mut out: Vec<Message> = order
+            .iter()
+            .filter_map(|id| by_id.get(id))
+            .filter(|s| s.envelope.kind == EnvelopeKind::Text)
+            .map(|s| Message {
+                id: s.envelope.id,
+                from_me: s.outgoing,
+                author_name: if s.outgoing {
+                    inner.cfg.display_name.clone()
+                } else {
+                    c.display_name.clone()
+                },
+                hlc: s.envelope.hlc,
+                text: String::from_utf8_lossy(s.plaintext.as_deref().unwrap_or_default())
+                    .into_owned(),
+                received_at_ms: s.received_at,
+            })
+            .collect();
+        let skip = out.len().saturating_sub(limit);
+        out.drain(..skip);
+        Ok(out)
+    }
+
     async fn diag_peer(&self, c: &Contact, direct_wait: Duration) -> PeerDiag {
         let mut out = PeerDiag {
             name: c.display_name.clone(),
@@ -363,7 +521,7 @@ impl Enxame {
         // O monitor parte antes do Hello para enxergar a troca relay → direto desde o início.
         let mut monitor = PathMonitor::spawn(conn.clone(), started);
         match hello_exchange(&self.inner, &conn, c).await {
-            Ok(hello) => {
+            Ok((hello, _send, _recv)) => {
                 out.connect_time = Some(started.elapsed());
                 out.peer_role = Some(hello.role);
                 out.protocol_version = hello.negotiate(SUPPORTED_VERSIONS);
@@ -382,9 +540,28 @@ impl Enxame {
 
 /// Lê a agenda sem subir a rede (para `contacts`).
 pub fn list_contacts(cfg: &Config) -> Result<Vec<Contact>> {
-    Ok(ContactBook::open(cfg.data_dir.join("contacts.bin"))?
-        .list()
-        .to_vec())
+    let store = Store::open(&cfg.data_dir.join("enxame.db"))?;
+    import_legacy_contacts(cfg, &store)?;
+    Ok(ContactBook::open(store)?.list().to_vec())
+}
+
+/// Importa o `contacts.bin` da Fase 1 para o banco, uma única vez.
+fn import_legacy_contacts(cfg: &Config, store: &Store) -> Result<()> {
+    let path = cfg.data_dir.join("contacts.bin");
+    if let Some(legacy) = contacts::read_legacy(&path)? {
+        store.with(|c| {
+            for contact in &legacy {
+                store::contact_upsert(c, contact)?;
+            }
+            Ok(())
+        })?;
+        std::fs::rename(&path, cfg.data_dir.join("contacts.bin.migrated"))?;
+        tracing::info!(
+            n = legacy.len(),
+            "contatos da Fase 1 importados para o banco"
+        );
+    }
+    Ok(())
 }
 
 fn contact_from_ticket(t: &InviteTicket, status: ContactStatus) -> Contact {
@@ -421,8 +598,13 @@ async fn dial_sync(inner: &Inner, c: &Contact) -> Result<Connection> {
         .map_err(|e| Error::Net(format!("conectar: {e}")))
 }
 
-/// Troca `Hello` numa conexão `enxame/sync/1` já discada, validando o certificado do par.
-async fn hello_exchange(inner: &Inner, conn: &Connection, c: &Contact) -> Result<Hello> {
+/// Troca `Hello` numa conexão `enxame/sync/1` já discada, validando o certificado do par. Os
+/// streams voltam para continuar a sessão de sincronização no mesmo canal.
+async fn hello_exchange(
+    inner: &Inner,
+    conn: &Connection,
+    c: &Contact,
+) -> Result<(Hello, SendStream, RecvStream)> {
     let max = inner.cfg.max_frame_bytes;
     let (mut send, mut recv) = conn
         .open_bi()
@@ -433,7 +615,114 @@ async fn hello_exchange(inner: &Inner, conn: &Connection, c: &Contact) -> Result
         .await
         .map_err(|_| Error::Timeout("Hello"))??;
     check_hello(&hello, c)?;
-    Ok(hello)
+    Ok((hello, send, recv))
+}
+
+/// Roda a sessão de sincronização com `c` sobre um par de streams.
+async fn run_session(
+    inner: &Inner,
+    c: &Contact,
+    recv: &mut RecvStream,
+    send: &mut SendStream,
+) -> Result<SyncStats> {
+    let me = inner.identity.identity_pk();
+    let name = c.display_name.clone();
+    let peer_fp = c.fingerprint();
+    let on_stored = move |env: &Envelope| {
+        if env.author != me {
+            inner.emit(Event::MessageReceived {
+                conversation_id: env.conversation_id,
+                id: env.id,
+                from_name: name.clone(),
+                from_fingerprint: peer_fp.clone(),
+            });
+        }
+        inner.clock().observe(env.hlc, unix_now_ms());
+    };
+    let session = Session {
+        store: &inner.store,
+        identity: &inner.identity,
+        peer_pk: c.identity_pk,
+        conversations: vec![dm_conversation_id(&me, &c.identity_pk)],
+        max_frame: inner.cfg.max_frame_bytes,
+        on_stored: &on_stored,
+    };
+    session.run(recv, send).await
+}
+
+/// Disca o contato, troca `Hello` e sincroniza a conversa.
+async fn sync_with(inner: &Inner, c: &Contact) -> Result<SyncStats> {
+    let conn = tokio::time::timeout(
+        Duration::from_secs(inner.cfg.dial_timeout_secs),
+        dial_sync(inner, c),
+    )
+    .await
+    .map_err(|_| Error::Timeout("conectar ao contato"))??;
+    let result = async {
+        let (_hello, mut send, mut recv) = hello_exchange(inner, &conn, c).await?;
+        let stats = run_session(inner, c, &mut recv, &mut send).await?;
+        let _ = send.finish();
+        Ok(stats)
+    }
+    .await;
+    conn.close(0u32.into(), b"sync done");
+    result
+}
+
+/// Guarda de sessão automática por contato: evita sessões automáticas concorrentes.
+struct SyncGuard {
+    inner: Arc<Inner>,
+    pk: [u8; 32],
+}
+
+impl SyncGuard {
+    fn try_new(inner: &Arc<Inner>, pk: [u8; 32]) -> Option<Self> {
+        let mut active = inner.active_syncs.lock().unwrap_or_else(|p| p.into_inner());
+        active.insert(pk).then(|| Self {
+            inner: inner.clone(),
+            pk,
+        })
+    }
+}
+
+impl Drop for SyncGuard {
+    fn drop(&mut self) {
+        let mut active = self
+            .inner
+            .active_syncs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        active.remove(&self.pk);
+    }
+}
+
+/// Sincroniza periodicamente com todos os contatos mútuos (entrega mensagens pendentes e puxa
+/// as que faltam). Cada contato tem a sua tarefa, para um par offline não atrasar os outros.
+async fn sync_loop(inner: Arc<Inner>) {
+    let mut tick = tokio::time::interval(Duration::from_secs(inner.cfg.sync_interval_secs));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tick.tick().await;
+        let contacts: Vec<Contact> = inner
+            .book()
+            .list()
+            .iter()
+            .filter(|c| c.is_mutual())
+            .cloned()
+            .collect();
+        for c in contacts {
+            let Some(guard) = SyncGuard::try_new(&inner, c.identity_pk) else {
+                continue;
+            };
+            let inner = inner.clone();
+            tokio::spawn(async move {
+                let _guard = guard;
+                if let Err(e) = sync_with(&inner, &c).await {
+                    tracing::debug!(peer = %c.fingerprint(), "sincronização automática falhou: {e}");
+                }
+            });
+        }
+    }
 }
 
 fn check_hello(hello: &Hello, c: &Contact) -> Result<()> {
@@ -501,8 +790,13 @@ async fn handle_sync(inner: &Inner, conn: &Connection) -> Result<()> {
         .map_err(|_| Error::Timeout("Hello"))??;
     check_hello(&hello, &contact)?;
     proto::write_frame(&mut send, &inner.our_hello(), max).await?;
-    // Mantém a conexão até o par fechar (o `diag` observa os caminhos nesse intervalo).
-    let _ = conn.closed().await;
+    // Segue com a sessão de sincronização no mesmo stream. Se o par só queria o `Hello`
+    // (`diag`), ele fecha a conexão e a leitura falha, o que é normal.
+    let stats = run_session(inner, &contact, &mut recv, &mut send).await?;
+    let _ = send.finish();
+    tracing::debug!(?stats, peer = %contact.fingerprint(), "sessão de sincronização recebida");
+    // Dá tempo de o iniciador fechar a conexão depois de ler o nosso `Bye`.
+    let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
     Ok(())
 }
 

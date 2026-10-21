@@ -28,6 +28,12 @@ pub enum Error {
     /// Contato desconhecido ou ambíguo.
     #[error("contato: {0}")]
     Contact(String),
+    /// Falha no banco de dados local.
+    #[error("banco de dados: {0}")]
+    Store(String),
+    /// Falha criptográfica (autenticação, formato de chave, destinatário).
+    #[error("cripto: {0}")]
+    Crypto(String),
     /// Operação excedeu o tempo limite.
     #[error("tempo esgotado: {0}")]
     Timeout(&'static str),

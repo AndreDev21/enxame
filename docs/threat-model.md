@@ -1,4 +1,4 @@
-# Modelo de ameaças (rascunho — Fase 1)
+# Modelo de ameaças (rascunho — Fases 1 e 2)
 
 Detalha a tabela da seção 12 da spec. Cobre só o que existe até a Fase 1 (identidade, contatos,
 conectividade); mensagens, carry e arquivos entram nas fases seguintes.
@@ -15,3 +15,10 @@ conectividade); mensagens, carry e arquivos entram nas fases seguintes.
 | Chave de identidade em disco | Keystore do SO (`os-keyring`); fallback em arquivo `0600` | Em Linux sem Secret Service o fallback é um arquivo legível pelo usuário |
 | Relay vê metadados | Conteúdo é E2E (QUIC/TLS do iroh entre dispositivos) | O relay vê NodeIds, tamanhos e horários |
 | Relay próprio com CA privada | `relay_ca_file` confia *apenas* nessa CA | Substitui as raízes públicas para o relay |
+| Mensagem forjada ou adulterada | `id` por hash + assinatura Ed25519; cabeçalho como AAD do conteúdo | — |
+| Terceiro injeta mensagem na conversa | Só autor = par ou eu, só conversas compartilhadas, só o que foi pedido (`Want`) | — |
+| Reordenação/replay | Deduplicação por `id`; ordem por `parents` + HLC | Um autor controla o próprio HLC (limite: 24 h no futuro) |
+| Envelope gigante / flood na sessão | Limites de tamanho, de pais e de destinatários, frame máximo, páginas de 1000 ids, timeout de 30 s | — |
+| Vazamento do disco | Chaves no keystore do SO | O banco com as mensagens **não é cifrado em repouso** (confie na cifragem de disco do SO) |
+| Chave de encriptação comprometida | — | Sem forward secrecy: expõe todo o histórico cifrado para essa chave (MLS pós-MVP) |
+| Metadados | — | Quem relaia/guarda vê `recipient`, tamanhos e horários dos envelopes; o par vê o HLC |

@@ -12,6 +12,13 @@ pub enum Event {
         display_name: String,
         fingerprint: String,
     },
+    /// Chegou uma mensagem nova de um contato; leia com `Enxame::history`.
+    MessageReceived {
+        conversation_id: [u8; 32],
+        id: [u8; 32],
+        from_name: String,
+        from_fingerprint: String,
+    },
     /// A aceitação mútua foi concluída.
     ContactAdded {
         display_name: String,

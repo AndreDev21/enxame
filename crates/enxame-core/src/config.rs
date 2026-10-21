@@ -56,6 +56,10 @@ pub struct Config {
     pub dns_discovery: bool,
     /// Tempo máximo esperando a decisão do outro lado ao adicionar contato.
     pub contact_request_timeout_secs: u64,
+    /// Tempo máximo para discar um contato ao sincronizar.
+    pub dial_timeout_secs: u64,
+    /// Intervalo da sincronização automática com os contatos, em segundos (0 desliga).
+    pub sync_interval_secs: u64,
     /// Validade padrão de um ticket.
     pub ticket_ttl_secs: u64,
     /// Tamanho máximo de frame de protocolo, em bytes.
@@ -72,6 +76,8 @@ impl Default for Config {
             mdns: true,
             dns_discovery: true,
             contact_request_timeout_secs: 300,
+            dial_timeout_secs: 15,
+            sync_interval_secs: 30,
             ticket_ttl_secs: 24 * 3600,
             max_frame_bytes: 1024 * 1024,
         }
@@ -118,6 +124,8 @@ impl Config {
             relay: RelaySetting::Disabled,
             mdns: false,
             dns_discovery: false,
+            dial_timeout_secs: 3,
+            sync_interval_secs: 0,
             ..Self::default()
         }
     }

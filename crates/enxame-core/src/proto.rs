@@ -6,7 +6,9 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::{identity::DeviceCert, identity::InviteTicket, Error, Result, Role};
+use crate::{
+    crypto::Envelope, hlc::Hlc, identity::DeviceCert, identity::InviteTicket, Error, Result, Role,
+};
 
 /// ALPN do pedido de contato (único tráfego aceito de desconhecidos).
 pub const ALPN_CONTACT: &[u8] = b"enxame/contact/1";
@@ -25,6 +27,45 @@ pub enum ContactMsg {
     },
     Accept,
     Reject,
+}
+
+/// Mensagens de `enxame/sync/1` depois do `Hello` (spec 7.3). A sessão é simétrica: os dois
+/// lados enviam `Heads` e puxam o que lhes falta.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SyncMsg {
+    /// Estado de uma conversa: pontas (envelopes sem filhos), quantidade e maior HLC.
+    Heads {
+        conversation_id: [u8; 32],
+        heads: Vec<[u8; 32]>,
+        count: u64,
+        hlc_max: Hlc,
+        /// BLAKE3 dos ids da conversa em ordem crescente: iguais ⇒ conjuntos iguais.
+        digest: [u8; 32],
+    },
+    /// Pede ids com HLC `>= since_hlc` (inclusive), até `limit`.
+    RangeQuery {
+        conversation_id: [u8; 32],
+        since_hlc: Hlc,
+        limit: u32,
+    },
+    /// Resposta: ids em ordem; `next` é o cursor da próxima página, se houver.
+    Ids {
+        conversation_id: [u8; 32],
+        ids: Vec<[u8; 32]>,
+        next: Option<Hlc>,
+    },
+    /// Pede envelopes completos.
+    Want {
+        conversation_id: [u8; 32],
+        ids: Vec<[u8; 32]>,
+    },
+    /// Envelopes pedidos, em um ou mais frames; `last` marca o fim da resposta a um `Want`.
+    Envelopes {
+        envelopes: Vec<Envelope>,
+        last: bool,
+    },
+    /// Não tenho mais nada a pedir.
+    Bye,
 }
 
 /// Primeira mensagem de `enxame/sync/1`, enviada nos dois sentidos (spec 7.3).
@@ -105,6 +146,44 @@ mod tests {
         assert_eq!(back, hello);
         assert_eq!(back.negotiate(&[1]), Some(1));
         assert_eq!(back.negotiate(&[2]), None);
+    }
+
+    #[tokio::test]
+    async fn sync_msgs_roundtrip() {
+        let msgs = vec![
+            SyncMsg::Heads {
+                conversation_id: [1; 32],
+                heads: vec![[2; 32]],
+                count: 3,
+                hlc_max: Hlc::new(9, 1),
+                digest: [8; 32],
+            },
+            SyncMsg::RangeQuery {
+                conversation_id: [1; 32],
+                since_hlc: Hlc::new(4, 0),
+                limit: 100,
+            },
+            SyncMsg::Ids {
+                conversation_id: [1; 32],
+                ids: vec![[5; 32], [6; 32]],
+                next: Some(Hlc::new(7, 7)),
+            },
+            SyncMsg::Want {
+                conversation_id: [1; 32],
+                ids: vec![[5; 32]],
+            },
+            SyncMsg::Envelopes {
+                envelopes: vec![],
+                last: true,
+            },
+            SyncMsg::Bye,
+        ];
+        for msg in msgs {
+            let mut buf = Vec::new();
+            write_frame(&mut buf, &msg, 4096).await.unwrap();
+            let back: SyncMsg = read_frame(&mut buf.as_slice(), 4096).await.unwrap();
+            assert_eq!(back, msg);
+        }
     }
 
     #[tokio::test]

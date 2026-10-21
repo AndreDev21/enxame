@@ -48,3 +48,48 @@ aceita; senão pergunta ao usuário (até 16 pedidos pendentes, timeout configur
 `{ device_cert, protocol_versions: Vec<u8>, role: Role, capabilities: u32 }`. O iniciador envia
 primeiro; o receptor valida o certificado contra o contato e responde com o seu. A versão em uso é
 a maior em comum. `role` é `Leaf` até a Fase 3; `capabilities` é reservado (0).
+
+## Fase 2 — envelopes e sincronização
+
+### `Envelope`
+`{ version: u8 (=1), id, conversation_id, author, author_device, hlc: Hlc, parents: Vec<[u8;32]>,
+recipients: Vec<SealedKey>, kind: EnvelopeKind, ciphertext: Vec<u8>, sig: Signature }`, todos os
+ids/chaves com 32 bytes. `EnvelopeKind` = `Text | FileRef | Receipt | GroupOp | CallSignal` (a
+ordem é parte do wire; só se acrescenta no fim; a Fase 2 só aceita `Text`).
+
+- `id` = `BLAKE3("enxame/envelope-id/1\0" ‖ postcard((version, conversation_id, author,
+  author_device, hlc, parents, recipients, kind, ciphertext)))`.
+- `sig` = Ed25519 da identidade do autor sobre `"enxame/envelope-sig/1\0" ‖ id`.
+- `ciphertext` = `nonce (24) ‖ XChaCha20-Poly1305(conteúdo)` com uma chave de conteúdo aleatória
+  por mensagem; AAD = `"enxame/envelope-aad/1\0" ‖ conversation_id ‖ author ‖ hlc.ms (LE) ‖
+  hlc.counter (LE) ‖ kind`.
+- `SealedKey { recipient (identity_pk), ephemeral_pk, sealed }`: X25519 efêmero-estático contra a
+  `enc_pk` do destinatário; `HKDF-SHA256(salt = ephemeral_pk ‖ enc_pk, ikm = segredo
+  compartilhado, info = "enxame/seal/1")` gera a chave que cifra a chave de conteúdo
+  (`nonce ‖ XChaCha20-Poly1305`, AAD = `recipient`). Segredo compartilhado nulo é recusado.
+- Limites: ≤ 32 destinatários, ≤ 64 pais, ciphertext ≤ 256 KiB; texto ≤ 16 KiB.
+- Em 1:1 o remetente também se inclui como destinatário (recupera o próprio histórico a partir
+  do par).
+- `conversation_id` 1:1 = `BLAKE3("enxame/dm/1\0" ‖ min(pk_a, pk_b) ‖ max(pk_a, pk_b))`.
+
+### `Hlc`
+`{ ms: u64, counter: u32 }`, ordem lexicográfica. Envelopes com `ms` mais de 24 h no futuro são
+recusados.
+
+### `SyncMsg` (`enxame/sync/1`, depois do `Hello`, no mesmo stream)
+`Heads { conversation_id, heads, count, hlc_max, digest } | RangeQuery { conversation_id,
+since_hlc, limit } | Ids { conversation_id, ids, next } | Want { conversation_id, ids } |
+Envelopes { envelopes, last } | Bye`.
+
+Sessão simétrica: cada lado envia `Heads` por conversa em comum. Se o `digest` (BLAKE3 dos ids em
+ordem crescente) do par difere do local, pagina `RangeQuery` (inclusivo em `since_hlc`, até 1000
+ids por página, `next` = HLC do primeiro id que ficou de fora) → `Ids` → `Want` (≤ 256 ids) →
+`Envelopes` (frames que cabem em `max_frame_bytes`; `last = true` fecha a resposta). Só se aceitam
+envelopes que foram pedidos. Um lado envia `Bye` quando já recebeu os `Heads` do par e não tem
+pedidos em aberto; a sessão termina quando os dois enviaram e receberam `Bye`. Silêncio por mais
+de 30 s aborta a sessão.
+
+Validação de cada envelope recebido: versão → `id` recalculado → assinatura → conversa permitida
+com este par → autor é o par ou eu → HLC não está no futuro → tipo suportado → deduplicação por
+`id` → decifra → texto UTF-8 válido. Qualquer falha descarta só aquele envelope e registra em
+`tracing`.

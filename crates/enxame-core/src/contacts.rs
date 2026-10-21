@@ -1,17 +1,19 @@
-//! Agenda de contatos. Persistência transitória em arquivo versionado (`contacts.bin`);
-//! migra para o SQLite do `store` na Fase 2 (ver ADR 0004).
+//! Agenda de contatos: cache em memória com escrita direta no SQLite (`store`).
+//! Até a Fase 1 ficava em `contacts.bin`; esse arquivo é importado uma vez (ver ADR 0005).
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use iroh::{EndpointAddr, EndpointId};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     identity::{fingerprint, DeviceCert},
+    store::{self, Store},
     Error, Result,
 };
 
-const FILE_VERSION: u8 = 1;
+/// Formato legado (`contacts.bin`, Fase 1).
+const LEGACY_FILE_VERSION: u8 = 1;
 
 /// Estado da relação. Nenhum tráfego de carry/seed antes de `Mutual` (spec 6.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,41 +54,51 @@ impl Contact {
 }
 
 #[derive(Serialize, Deserialize)]
-struct FileFormat {
+struct LegacyFormat {
     version: u8,
     contacts: Vec<Contact>,
 }
 
-/// Coleção persistida de contatos.
+/// Serializa no formato legado (só para testes de migração).
+pub fn legacy_bytes(contacts: &[Contact]) -> Vec<u8> {
+    postcard::to_stdvec(&LegacyFormat {
+        version: LEGACY_FILE_VERSION,
+        contacts: contacts.to_vec(),
+    })
+    .unwrap_or_default()
+}
+
+/// Lê o `contacts.bin` da Fase 1, se existir.
+pub fn read_legacy(path: &Path) -> Result<Option<Vec<Contact>>> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let f: LegacyFormat = postcard::from_bytes(&bytes)
+        .map_err(|e| Error::Codec(format!("{}: {e}", path.display())))?;
+    if f.version != LEGACY_FILE_VERSION {
+        return Err(Error::Codec(format!(
+            "{}: versão {} não suportada",
+            path.display(),
+            f.version
+        )));
+    }
+    Ok(Some(f.contacts))
+}
+
+/// Coleção de contatos com escrita direta no banco.
 #[derive(Debug)]
 pub struct ContactBook {
-    path: Option<PathBuf>,
+    store: Store,
     contacts: Vec<Contact>,
 }
 
 impl ContactBook {
-    /// Abre (ou cria vazia) a agenda no caminho dado.
-    pub fn open(path: PathBuf) -> Result<Self> {
-        let contacts = match std::fs::read(&path) {
-            Ok(bytes) => {
-                let f: FileFormat = postcard::from_bytes(&bytes)
-                    .map_err(|e| Error::Codec(format!("{}: {e}", path.display())))?;
-                if f.version != FILE_VERSION {
-                    return Err(Error::Codec(format!(
-                        "{}: versão {} não suportada",
-                        path.display(),
-                        f.version
-                    )));
-                }
-                f.contacts
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(e.into()),
-        };
-        Ok(Self {
-            path: Some(path),
-            contacts,
-        })
+    /// Carrega os contatos do banco.
+    pub fn open(store: Store) -> Result<Self> {
+        let contacts = store.with(|c| store::contacts_load(c))?;
+        Ok(Self { store, contacts })
     }
 
     pub fn list(&self) -> &[Contact] {
@@ -126,43 +138,33 @@ impl ContactBook {
     /// Insere ou atualiza (por identidade) e persiste. Um contato `Mutual` nunca volta a
     /// `Outgoing`.
     pub fn upsert(&mut self, mut contact: Contact) -> Result<()> {
+        if let Some(existing) = self
+            .contacts
+            .iter()
+            .find(|c| c.identity_pk == contact.identity_pk)
+        {
+            if existing.is_mutual() {
+                contact.status = ContactStatus::Mutual;
+            }
+            contact.added_at = existing.added_at;
+        }
+        let c = contact.clone();
+        self.store.with(|conn| store::contact_upsert(conn, &c))?;
         match self
             .contacts
             .iter_mut()
-            .find(|c| c.identity_pk == contact.identity_pk)
+            .find(|x| x.identity_pk == contact.identity_pk)
         {
-            Some(existing) => {
-                if existing.is_mutual() {
-                    contact.status = ContactStatus::Mutual;
-                }
-                contact.added_at = existing.added_at;
-                *existing = contact;
-            }
+            Some(existing) => *existing = contact,
             None => self.contacts.push(contact),
         }
-        self.save()
+        Ok(())
     }
 
     /// Remove por identidade (pedido rejeitado) e persiste.
     pub fn remove(&mut self, pk: &[u8; 32]) -> Result<()> {
+        self.store.with(|conn| store::contact_remove(conn, pk))?;
         self.contacts.retain(|c| &c.identity_pk != pk);
-        self.save()
-    }
-
-    fn save(&self) -> Result<()> {
-        let Some(path) = &self.path else {
-            return Ok(());
-        };
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let bytes = postcard::to_stdvec(&FileFormat {
-            version: FILE_VERSION,
-            contacts: self.contacts.clone(),
-        })?;
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, bytes)?;
-        std::fs::rename(&tmp, path)?;
         Ok(())
     }
 }

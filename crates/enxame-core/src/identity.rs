@@ -26,6 +26,14 @@ pub fn unix_now() -> u64 {
         .unwrap_or(0)
 }
 
+/// Milissegundos desde a época Unix.
+pub fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Prefixo hexadecimal curto da chave de identidade, para exibição e referência na CLI.
 pub fn fingerprint(identity_pk: &[u8; 32]) -> String {
     data_encoding::HEXLOWER.encode(&identity_pk[..8])
@@ -243,6 +251,16 @@ impl Identity {
     /// Chave pública de cifragem (X25519).
     pub fn enc_pk(&self) -> [u8; 32] {
         x25519_dalek::PublicKey::from(&self.enc_secret).to_bytes()
+    }
+
+    /// Assina com a chave de identidade (uso interno: envelopes).
+    pub(crate) fn sign(&self, msg: &[u8]) -> Signature {
+        self.signing.sign(msg)
+    }
+
+    /// Chave secreta de cifragem (uso interno: abrir envelopes).
+    pub(crate) fn enc_secret(&self) -> &x25519_dalek::StaticSecret {
+        &self.enc_secret
     }
 
     /// Chave secreta do dispositivo, usada pelo endpoint iroh.

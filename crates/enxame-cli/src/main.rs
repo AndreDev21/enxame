@@ -51,6 +51,19 @@ enum Command {
         #[arg(long)]
         auto_accept: bool,
     },
+    /// Envia uma mensagem a um contato (nome ou prefixo da fingerprint). Se o contato estiver
+    /// offline, a mensagem fica guardada e segue na próxima sincronização. Não rode junto com
+    /// `serve`/`chat` no mesmo diretório: use `chat`.
+    Send { contact: String, text: Vec<String> },
+    /// Mostra o histórico da conversa (lê só o banco local).
+    History {
+        contact: String,
+        /// Quantas mensagens mostrar.
+        #[arg(short, long, default_value_t = 50)]
+        n: usize,
+    },
+    /// Conversa interativa: fica online, mostra o que chega e envia o que você digita.
+    Chat { contact: String },
     /// Lista os contatos.
     Contacts,
     /// Diagnóstico de rede: NAT, caminho (direto/relay), RTT, papel.
@@ -143,6 +156,34 @@ async fn main() -> Result<()> {
             }
         }
         Command::Serve { auto_accept } => serve(load_config(&cli)?, *auto_accept).await?,
+        Command::Send { contact, text } => {
+            let node = start(load_config(&cli)?).await?;
+            let sent = node.send_text(contact, &text.join(" ")).await;
+            node.shutdown().await;
+            let sent = sent?;
+            if sent.synced {
+                println!("Enviada e entregue.");
+            } else {
+                println!(
+                    "Guardada; o contato está inacessível agora ({}). Segue na próxima sincronização.",
+                    sent.error.as_deref().unwrap_or("?")
+                );
+            }
+        }
+        Command::History { contact, n } => {
+            let cfg = load_config(&cli)?;
+            let node = start(cfg).await?;
+            let hist = node.history(contact, *n).await;
+            node.shutdown().await;
+            let hist = hist?;
+            if hist.is_empty() {
+                println!("(sem mensagens)");
+            }
+            for m in hist {
+                print_message(&m);
+            }
+        }
+        Command::Chat { contact } => chat(load_config(&cli)?, contact).await?,
         Command::Contacts => {
             let cfg = load_config(&cli)?;
             let book = enxame_core::list_contacts(&cfg)?;
@@ -180,6 +221,72 @@ async fn main() -> Result<()> {
 
 fn cfg_relay_disabled(cfg: &Config) -> bool {
     cfg.relay == RelaySetting::Disabled
+}
+
+fn print_message(m: &enxame_core::Message) {
+    let secs = (m.received_at_ms / 1000) as i64;
+    let (h, mi) = ((secs / 3600) % 24, (secs / 60) % 60);
+    let who = if m.from_me {
+        "eu".to_owned()
+    } else {
+        m.author_name.clone()
+    };
+    println!("[{h:02}:{mi:02} UTC] {who}: {}", m.text);
+}
+
+/// Conversa interativa. Fica online (aceita sessões do contato), mostra mensagens novas assim
+/// que chegam e envia cada linha digitada. `/sair` ou Ctrl-C encerram.
+async fn chat(cfg: Config, contact: &str) -> Result<()> {
+    use tokio::io::AsyncBufReadExt;
+    let node = start(cfg).await?;
+    // Valida o contato e mostra o contexto.
+    for m in node.history(contact, 20).await? {
+        print_message(&m);
+    }
+    println!("--- {contact} (digite e Enter para enviar; /sair para sair) ---");
+    let mut events = node.subscribe();
+    let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+    let mut ctrl_c = std::pin::pin!(tokio::signal::ctrl_c());
+    // Sincroniza em segundo plano ao entrar, para puxar o que ficou pendente.
+    {
+        let node = node.clone();
+        let contact = contact.to_owned();
+        tokio::spawn(async move {
+            let _ = node.sync_now(&contact).await;
+        });
+    }
+    loop {
+        tokio::select! {
+            _ = &mut ctrl_c => break,
+            ev = events.recv() => match ev {
+                Ok(Event::MessageReceived { .. }) => {
+                    // Mostra só o fim da conversa: a mensagem nova é sempre a mais recente
+                    // do par, então imprime as que ainda não foram exibidas.
+                    if let Some(m) = node.history(contact, 1).await?.pop() {
+                        print_message(&m);
+                    }
+                }
+                Ok(Event::ContactRequested { display_name, fingerprint, .. }) => {
+                    println!("(pedido de contato de {display_name} [{fingerprint}]; use `serve` para responder)");
+                }
+                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(_) => break,
+            },
+            line = lines.next_line() => {
+                let Some(line) = line? else { break };
+                let line = line.trim();
+                if line == "/sair" { break; }
+                if line.is_empty() { continue; }
+                match node.send_text(contact, line).await {
+                    Ok(s) if s.synced => {}
+                    Ok(_) => println!("(guardada; contato inacessível agora, segue depois)"),
+                    Err(e) => println!("erro: {e}"),
+                }
+            }
+        }
+    }
+    node.shutdown().await;
+    Ok(())
 }
 
 fn node_ttl_hours(cfg: &Config) -> u64 {
@@ -257,6 +364,11 @@ async fn serve(cfg: Config, auto_accept: bool) -> Result<()> {
                 }
                 Ok(Event::ContactAdded { display_name, fingerprint }) => {
                     println!("Contato mútuo: {display_name} [{fingerprint}]");
+                }
+                Ok(Event::MessageReceived { from_name, .. }) => {
+                    if let Some(m) = node.history(&from_name, 1).await.ok().and_then(|mut h| h.pop()) {
+                        print_message(&m);
+                    }
                 }
                 Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(_) => break,
