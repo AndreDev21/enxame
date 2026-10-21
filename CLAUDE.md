@@ -60,6 +60,6 @@ cargo run -p enxame-cli -- --help
 ## Estado
 
 - Fases 0, 1 e 2 implementadas, aguardando revisão. A Fase 1 foi validada em campo (Linux ↔ Linux,
-  redes diferentes); Windows e 4G seguem sem teste. Pendente da Fase 2: teste real entre duas
-  máquinas (roteiro no relatório da fase). Próxima: Fase 3 (papéis, carry, nó headless).
+  redes diferentes); Windows e 4G seguem sem teste. A Fase 2 foi validada em campo com duas
+  máquinas remotas (`docs/reports/fase2-mensagens.md`); falta conferir `history` nelas, Windows e 4G. Próxima: Fase 3 (papéis, carry, nó headless).
 - Nome do projeto e `repository` no `Cargo.toml` são provisórios.
