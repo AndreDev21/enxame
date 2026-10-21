@@ -259,11 +259,15 @@ async fn chat(cfg: Config, contact: &str) -> Result<()> {
         tokio::select! {
             _ = &mut ctrl_c => break,
             ev = events.recv() => match ev {
-                Ok(Event::MessageReceived { .. }) => {
-                    // Mostra só o fim da conversa: a mensagem nova é sempre a mais recente
-                    // do par, então imprime as que ainda não foram exibidas.
-                    if let Some(m) = node.history(contact, 1).await?.pop() {
-                        print_message(&m);
+                Ok(Event::MessageReceived { from_name, from_fingerprint, .. }) => {
+                    // Só a conversa aberta; mensagens de outros contatos ficam no histórico deles.
+                    let q = contact.to_lowercase();
+                    if from_name.to_lowercase() == q
+                        || (q.len() >= 4 && from_fingerprint.starts_with(&q))
+                    {
+                        if let Some(m) = node.history(contact, 1).await?.pop() {
+                            print_message(&m);
+                        }
                     }
                 }
                 Ok(Event::ContactRequested { display_name, fingerprint, .. }) => {
