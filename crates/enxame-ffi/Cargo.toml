@@ -1,0 +1,14 @@
+[package]
+name = "enxame-ffi"
+description = "API do Enxame exposta ao Flutter (flutter_rust_bridge v2, a partir da Fase 6)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+enxame-core.workspace = true
+
+[lints]
+workspace = true

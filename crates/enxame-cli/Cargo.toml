@@ -1,0 +1,23 @@
+[package]
+name = "enxame-cli"
+description = "CLI de desenvolvimento e teste do Enxame."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "enxame-cli"
+path = "src/main.rs"
+
+[dependencies]
+enxame-core = { workspace = true, features = ["os-keyring"] }
+anyhow.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true
+tracing.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true

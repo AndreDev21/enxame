@@ -1,0 +1,19 @@
+[package]
+name = "enxame-node"
+description = "Daemon headless do Enxame (papel fixo SuperPeer)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "enxame-node"
+path = "src/main.rs"
+
+[dependencies]
+enxame-core = { workspace = true, features = ["os-keyring"] }
+anyhow.workspace = true
+
+[lints]
+workspace = true
