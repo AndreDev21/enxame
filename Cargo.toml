@@ -12,7 +12,7 @@ version = "0.0.1"
 edition = "2021"
 rust-version = "1.91"
 license = "AGPL-3.0-only"
-repository = "https://github.com/OWNER/enxame"
+repository = "https://github.com/AndreDev21/enxame"
 
 [workspace.dependencies]
 enxame-core = { path = "crates/enxame-core", version = "0.0.1" }
