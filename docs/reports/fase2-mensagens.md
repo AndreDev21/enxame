@@ -33,15 +33,19 @@ Todas rodando `enxame-cli chat` com o binário desta versão (o banco da Fase 1 
 | A → contato (resposta, ida e volta) | ok | — |
 | Texto longo (~500 caracteres), acentos e emoji | ok | emoji e símbolo (`<3`) ok |
 | Contato offline: A escreve 2 mensagens, ficam guardadas (`guardada; contato inacessível`) | ok | ok |
-| Contato volta ao chat e recebe as 2 mensagens sozinho, sem reenvio | **ok** (confirmado pelo usuário) | **ok** (confirmado pelo `history` dele: as duas na ordem A → B, sem duplicatas) |
+| Contato volta ao chat e recebe as 2 mensagens sozinho, sem reenvio | **ok** (confirmado pelo `history` dela: as duas na ordem 1 → 2, sem duplicatas) | **ok** (confirmado pelo `history` dele: as duas na ordem A → B, sem duplicatas) |
 | Isolamento entre conversas (as conversas de A com B e com C não se misturam) | observado: o chat com um contato só mostrou mensagens dele | idem |
 
 O `history` de B (enviado por ele pelo próprio chat) lista, nesta ordem: 3 mensagens dele, as duas
 mensagens OFFLINE de A (A, depois B), mais duas dele e o pedido de A. A mesma conversa no banco
 de A tem as mesmas 9 mensagens na mesma ordem: ordem idêntica nos dois lados e sem duplicatas.
 
-Pendente: o `history` de C (a ordem foi confirmada só pelo relato dele de que recebeu as duas
-mensagens). Windows e rede móvel (4G/CGNAT) continuam sem teste.
+O `history` de C (também enviado por ela pelo chat) lista, nesta ordem: a mensagem pendente de A,
+a de C, a longa, a resposta de A, as duas OFFLINE (1, depois 2) e o "voltei". É a mesma ordem da
+conversa no banco de A, sem duplicatas. (A saída dela declara 8 mensagens: a oitava é o próprio
+pedido de `history`, que chegou depois da listagem.)
+
+Nada pendente da Fase 2 em Linux ↔ Linux. Windows e rede móvel (4G/CGNAT) continuam sem teste.
 
 ## Observações
 
