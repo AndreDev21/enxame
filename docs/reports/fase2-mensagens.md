@@ -33,12 +33,15 @@ Todas rodando `enxame-cli chat` com o binário desta versão (o banco da Fase 1 
 | A → contato (resposta, ida e volta) | ok | — |
 | Texto longo (~500 caracteres), acentos e emoji | ok | emoji e símbolo (`<3`) ok |
 | Contato offline: A escreve 2 mensagens, ficam guardadas (`guardada; contato inacessível`) | ok | ok |
-| Contato volta ao chat e recebe as 2 mensagens sozinho, sem reenvio | **ok** (confirmado pelo usuário) | parcial: voltou e escreveu; a confirmação das duas mensagens e da ordem na tela dele não foi registrada |
-| Isolamento entre conversas | não observado em campo (coberto pelo teste in-process) | idem |
+| Contato volta ao chat e recebe as 2 mensagens sozinho, sem reenvio | **ok** (confirmado pelo usuário) | **ok** (confirmado pelo `history` dele: as duas na ordem A → B, sem duplicatas) |
+| Isolamento entre conversas (as conversas de A com B e com C não se misturam) | observado: o chat com um contato só mostrou mensagens dele | idem |
 
-Pendente de registrar: a saída de `history` nas máquinas B e C para comparar a ordem e a ausência
-de duplicatas com a de A (a ordem é coberta pelos testes de propriedade, mas não foi conferida
-em campo). Windows e rede móvel (4G/CGNAT) continuam sem teste.
+O `history` de B (enviado por ele pelo próprio chat) lista, nesta ordem: 3 mensagens dele, as duas
+mensagens OFFLINE de A (A, depois B), mais duas dele e o pedido de A. A mesma conversa no banco
+de A tem as mesmas 9 mensagens na mesma ordem: ordem idêntica nos dois lados e sem duplicatas.
+
+Pendente: o `history` de C (a ordem foi confirmada só pelo relato dele de que recebeu as duas
+mensagens). Windows e rede móvel (4G/CGNAT) continuam sem teste.
 
 ## Observações
 
