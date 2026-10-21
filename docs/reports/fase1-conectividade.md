@@ -23,8 +23,8 @@ Cada cenário: A em `serve`, B faz `add` do ticket de A (aceitação mútua via 
 ## Resultado vs critério de aceite
 
 - Netsim: o cenário simétrico cai em relay e o cone faz hole punching. **Atendido.**
-- Duas máquinas reais em redes diferentes virarem contatos via ticket: **não verificado** (só
-  foi possível uma máquina). Roteiro manual abaixo.
+- Duas máquinas reais em redes diferentes virarem contatos via ticket e `diag` mostrar o
+  caminho: **atendido** (Linux ↔ Linux, ver "Medição em campo"). Linux ↔ Windows: não testado.
 
 ## Armadilha encontrada: conntrack do Linux e hole punching
 
@@ -37,7 +37,35 @@ o netsim agora reproduz isso (`ct state new drop` no hook `input` da WAN). Isto 
 simulação, mas mostra que a eficácia do hole punching depende de como o NAT real trata
 pacotes não solicitados — motivo pelo qual a taxa direto vs relay precisa ser medida em campo.
 
-## Roteiro manual (pendente)
+## Medição em campo (2026-10-21)
+
+Máquina A (Linux, fibra residencial, relay público padrão do iroh) e máquina C (Arch Linux, outra
+LAN e outro IP público, também fibra), contatos via ticket com aceitação mútua conferida pela
+fingerprint. `diag` executado em C, 5 rodadas com `--wait-direct 30`:
+
+| Rodada | Handshake | Até ficar direto | RTT | Caminho |
+|---|---|---|---|---|
+| 1 | 1189,6 ms | 1145,5 ms | 39,4 ms | direto |
+| 2 | 1185,6 ms | 1145,6 ms | 35,9 ms | direto |
+| 3 | 1109,4 ms | 1069,5 ms | 33,7 ms | direto |
+| 4 | 1160,5 ms | 1124,5 ms | 35,9 ms | direto |
+| 5 | 1129,2 ms | 1090,1 ms | 41,0 ms | direto |
+
+- **5/5 diretas** entre redes diferentes; 1 troca de caminho e 2 caminhos abertos em todas
+  (começa no relay e migra para IP direto). NAT de C: Cone, UDP ok, mapeamento independente do
+  destino; relay preferido `use1-1.relay.n0.iroh.link`. Com um único relay conhecido o tipo
+  de NAT só é classificável porque o relatório do iroh traz mais de um relay padrão.
+- O handshake (≈1,1 s) é quase todo o tempo até o caminho ficar direto (≈1,1 s): o `Hello` só
+  termina depois que o hole punching conclui, ou seja ≈1 s é o custo de abrir uma sessão nova
+  nesse par de redes. Vale investigar se o `Hello` deveria seguir pelo relay sem esperar.
+- RTT direto de 34–41 ms, coerente com duas casas em cidades/ISPs diferentes.
+- Não medido: sentido inverso (`diag` em A), 4G/CGNAT, Starlink, mesma LAN, Windows.
+- Problema encontrado: em máquinas com Tailscale (MagicDNS em `100.100.100.100`), o resolvedor do
+  iroh (que usa EDNS) não recebe resposta, o relay não conecta e o ticket sai sem relay. Em uma das
+  máquinas foi preciso rodar com `resolv.conf` próprio; em C não ocorreu. Vale um fallback de DNS
+  configurável.
+
+## Roteiro manual (restante)
 
 Para cada par de redes (fibra↔fibra, fibra↔4G por tethering, fibra↔Starlink):
 
