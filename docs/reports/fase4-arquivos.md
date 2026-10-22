@@ -87,6 +87,37 @@ Máquinas: **André** (Linux, LAN), **bob** (Linux, mesma LAN/IP público que o 
   notebook ↔ bob a multi-fonte aconteceu. Não é bug, mas a UI da Fase 6 precisa deixar claro quem é
   contato de quem.
 
+### Retomada e remetente offline (passos 5 e 6, sem a andrecasa)
+
+Adaptado com quatro nós: André (remetente), bob (`Relay`, mesma LAN), notebook (Windows, 4G) e
+**jean** (Linux, mesma LAN, quarto computador pareado no dia, `Peer`).
+
+**Passo 5, retomada (download interrompido):**
+
+| Quem | Arquivo | Interrupção | Retomada | Hash |
+|---|---|---|---|---|
+| jean (LAN) | 400 MB | Ctrl-C em 30% (114,5 MB, 3,9 s) | **6,5 s** para o resto | igual |
+| notebook (4G) | 100 MB | `kill` em 30% (28,8 MB) | 199 s | igual |
+
+- No jean a retomada só baixou o que faltava (6,5 s para ~70%); o hash do arquivo final bate.
+- No notebook o processo foi morto (a ponte do Windows sem console não envia Ctrl-C), equivalente a
+  queda de energia. Ficaram ~38 MB em segmentos no disco, mas a segunda execução levou 199 s a
+  ~0,4 MB/s (o relay estava limitando a banda): o tempo é dominado pela rede, o teste não é
+  conclusivo sobre economia de bytes nesse caminho.
+- **Achado:** o progresso da retomada começa em 0% (jean) ou perto de 6% (notebook) em vez do que já
+  estava em disco; só o contador visual, os dados são reaproveitados.
+
+**Passo 6, arquivo com o remetente offline:**
+1. Rodada 1 (45 MB): o jean saiu, o André enviou e o bob (`Relay`) recebeu a pré-replicação em <1 s
+   (6 segmentos, 45 MB). O jean voltou, o 📎 apareceu em ~5 s e o download levou 3,7 s. O André ainda
+   estava online, então o jean podia puxar dele também (o bob serviu ~17 MB).
+2. Rodada 2 (40 MB), **sem o remetente**: o jean saiu, o André enviou, o bob pré-replicou (40 MB) e
+   o André **saiu da rede**. Cinco minutos depois o jean voltou, viu o 📎 em ~8 s e baixou em 18 s.
+   O bob serviu **+40.010.622 bytes**, ou seja, o arquivo inteiro; o SHA-256 bateu com o original.
+
+Resultado: um arquivo chega a um contato offline mesmo com o remetente fora da rede, desde que um
+carrier `Relay`/`SuperPeer` tenha pré-replicado o blob (≤ `prefetch_max_mb`).
+
 ### Achados de campo
 
 1. O relay público do iroh limita a banda por endpoint (`The relay is rate-limiting this endpoint`).
@@ -102,10 +133,14 @@ Máquinas: **André** (Linux, LAN), **bob** (Linux, mesma LAN/IP público que o 
    Windows com codepage 65001); corrigido: a resposta é normalizada (espaços, BOM e caixa), com teste.
 6. O chat não aceita pedidos de contato (só o `serve`); para parear dois nós já online é preciso
    parar o chat.
+7. O `/enviar` do chat não diz quantos carriers guardaram o aviso (só o `send-file` diz). O texto
+   `anunciado; fique online…` aparece mesmo com o destinatário offline e confunde.
+8. Parear um quarto nó exige `add` de cada contato com o `serve` dele no ar; a UI da Fase 6 precisa
+   de um fluxo de convite que não obrigue a fechar o chat.
 
 ## Limites desta validação
 
-- Rodadas de retomada de download e de arquivo com remetente offline (passos 5 e 6 do roteiro)
-  **não foram feitas** neste dia: a andrecasa não estava disponível.
+- A andrecasa não participou: os passos 5 e 6 foram adaptados com bob, notebook e jean (veja acima).
+  A rede externa de longa distância (outra cidade) continua só testada na Fase 3.
 - O `enxame-node` em Docker não foi reconstruído com o suporte a arquivos.
 - Grupos (Fase 5) não têm arquivos ainda.

@@ -6,8 +6,9 @@ Especificação: [`enxame-mvp.md`](../enxame-mvp.md) · convenções: [`CLAUDE.m
 ## Resumo em uma frase
 
 As Fases 0–4 estão **implementadas e passam em todos os testes locais**; as Fases 1, 2 e 3 também
-foram **validadas em campo** com máquinas reais. **A Fase 4 (arquivos) ainda não foi testada em
-campo**: era para ser hoje, ficou para amanhã. Próxima fase de código: **Fase 5 (grupos)**.
+foram **validadas em campo** com máquinas reais. **A Fase 4 (arquivos) também foi validada em
+campo** (2026-10-22: multi-fonte, retomada e arquivo com remetente offline; veja o relatório).
+Próxima fase de código: **Fase 5 (grupos)**.
 
 ## Fases
 
@@ -17,25 +18,18 @@ campo**: era para ser hoje, ficou para amanhã. Próxima fase de código: **Fase
 | 1 | Identidade, tickets, conectividade, `diag`, netsim | ok | ok (Linux↔Linux, redes diferentes, 5/5 diretas) | `reports/fase1-conectividade.md` |
 | 2 | `store`, `crypto`, `sync`, mensagens 1:1 | ok | ok (offline e retorno, ordem, acentos/emoji) | `reports/fase2-mensagens.md` |
 | 3 | Papéis, carry com recibos, `enxame-node`, deploy, Android | ok | ok (A→carrier→B com A offline) | `reports/fase3-carry.md` |
-| 4 | Arquivos: STREAM, `iroh-blobs`, multi-fonte, retomada, prefetch | ok (inclui 1 GiB em 2 fontes) | **PENDENTE** | `reports/fase4-arquivos.md` |
+| 4 | Arquivos: STREAM, `iroh-blobs`, multi-fonte, retomada, prefetch | ok (inclui 1 GiB em 2 fontes) | ok (multi-fonte, retomada, remetente offline; Windows+4G) | `reports/fase4-arquivos.md` |
 | 5 | Grupos pequenos | não iniciada | — | — |
 | 6 | App Flutter desktop + setup simples | não iniciada | — | — |
 | 7 | Call 1:1 (stretch) | não iniciada | — | — |
 
-Último commit de código: `7ea77c4` (Fase 4). Depois dele só documentação e scripts.
+Último commit de código: `ea59a9d` (correções de campo da Fase 4).
 
 ## Amanhã, nesta ordem
 
-1. **Teste de campo da Fase 4** com o bob e a andrecasa.
-   - Roteiro: [`roteiros/fase4-arquivos-tres-maquinas.md`](roteiros/fase4-arquivos-tres-maquinas.md).
-   - Os dois precisam de `git pull` + `cargo build --release -p enxame-cli` antes. A andrecasa abre
-     com `--role peer` (e `--role relay` no passo do arquivo com remetente offline).
-   - Para o Claude orquestrar pelo próprio chat: `scripts/field/orq.sh start bob andrecasa`, depois
-     `say "@bob ..."` / `see` (detalhes no cabeçalho do script). O banco real desta máquina migra
-     sozinho para a versão 3 na primeira execução do binário novo.
-   - Registrar os resultados em `reports/fase4-arquivos.md` (seção "Validação em campo", ainda não
-     existe) e atualizar o `CLAUDE.md`.
-   - Dica que vale ouro: se o relay não conectar para alguém, `ENXAME_DNS_SERVERS=1.1.1.1,8.8.8.8`.
+1. ~~Teste de campo da Fase 4~~ **feito** (2026-10-22, com bob, notebook Windows no 4G e jean): ver
+   `reports/fase4-arquivos.md`. Pendências menores: progresso da retomada começa em 0%, o `/enviar`
+   do chat não informa carriers, e a andrecasa (outra cidade) ainda não rodou a Fase 4.
 2. **Reconstruir e validar a imagem Docker do `enxame-node` com suporte a arquivos**
    (`deploy/`; a última validação foi na Fase 3, antes de `iroh-blobs`). Idem `docker compose`.
 3. **Fase 5 — grupos pequenos (≤ 20)**, seção 13 da spec: `GroupOp` (só o criador adiciona/remove),
@@ -59,7 +53,7 @@ aceite da Fase 6 (hoje só existe a opção manual `dns_servers`).
 |---|---|
 | DNS com fallback automático (roteador e MagicDNS do Tailscale descartam EDNS) | Fase 6 (aceite) |
 | Instaladores e binários prontos pela CI (hoje é preciso compilar com Rust) | Fase 6 / CI de releases |
-| Windows e rede móvel (4G/CGNAT) sem nenhum teste em campo; sinais do Windows (bateria, rede medida) não implementados | Fase 6 |
+| Windows e 4G (CGNAT) testados só na Fase 4 (notebook via relay, ~1 MB/s); sinais do Windows (bateria, rede medida) e Ctrl-C sem console não implementados | Fase 6 |
 | `enxame-node` em Docker com arquivos | amanhã (item 2) |
 | Endereço de contato vem do ticket e envelhece sem relay/DNS (só o lado que reiniciou consegue discar) | resolvido na prática com relay + DNS |
 | `RoleUpdate` só alcança contatos com sessão aberta (sessões são curtas); os demais leem o papel no `Hello` | aceito (ADR 0006) |

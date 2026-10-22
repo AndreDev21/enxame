@@ -105,6 +105,6 @@ cargo run -p enxame-cli -- --help
 - Fases 0 a 4 implementadas; a 3 foi validada em campo com três máquinas (`docs/reports/fase3-carry.md`);
   aguarda revisão. Fases 0–2 revisadas. A Fase 1 foi validada em campo (Linux ↔ Linux,
   redes diferentes); Windows e 4G seguem sem teste. A Fase 2 foi validada em campo com duas
-  máquinas remotas (`docs/reports/fase2-mensagens.md`); falta Windows e 4G. Próxima: Fase 5 (grupos). A Fase 4 passou nos testes locais (inclui 1 GiB em 2 fontes) e
-  aguarda o teste em campo (`docs/roteiros/fase4-arquivos-tres-maquinas.md`).
+  máquinas remotas (`docs/reports/fase2-mensagens.md`); falta Windows e 4G. Próxima: Fase 5 (grupos). A Fase 4 passou nos testes locais (inclui 1 GiB em 2 fontes) e foi validada em campo
+  (multi-fonte, retomada, remetente offline; Linux e Windows no 4G; `docs/reports/fase4-arquivos.md`).
 - Nome do projeto e `repository` no `Cargo.toml` são provisórios.
