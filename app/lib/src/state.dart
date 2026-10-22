@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
@@ -95,6 +96,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> start({String? displayName}) async {
     me = await api.startNode(displayName: displayName);
+    calls.logFile = File('${api.dataDir()}${Platform.pathSeparator}calls.log');
     await refreshAll();
     _events = api.events().listen(_onEvent, onError: (_) {});
     // Rede de segurança: o estado pendente (pedidos, entregas) é recarregado de tempos em tempos.

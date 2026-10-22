@@ -162,4 +162,54 @@ void main() {
     await b.reject();
     await until(() => a.phase == CallPhase.idle);
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  for (final (label, servers) in [
+    (
+      'só um STUN por IPv4 literal',
+      <Map<String, dynamic>>[
+        {'urls': 'stun:74.125.250.129:19302'},
+      ],
+    ),
+    (
+      'STUN por nome (como no app)',
+      <Map<String, dynamic>>[
+        {'urls': 'stun:stun.l.google.com:19302'},
+      ],
+    ),
+  ]) {
+    testWidgets('tempo para conectar: $label', (tester) async {
+      // Fios próprios: os controladores do setUp também escutam wa/wb e atrapalhariam a medição.
+      final w1 = _Wire('A');
+      final w2 = _Wire('B');
+      w1.other = w2;
+      w2.other = w1;
+      final a2 = CallController(
+        transport: w1,
+        media: DeviceMedia(pickScreen: firstScreen),
+        iceServers: servers,
+      );
+      final b2 = CallController(
+        transport: w2,
+        media: DeviceMedia(pickScreen: firstScreen),
+        iceServers: servers,
+      );
+      final sw = Stopwatch()..start();
+      await a2.call('B', 'Pessoa B', CallKind.screen);
+      await until(() => b2.phase == CallPhase.incoming);
+      await b2.accept();
+      var ok = false;
+      for (var i = 0; i < 400 && !ok; i++) {
+        ok = a2.phase == CallPhase.connected && b2.phase == CallPhase.connected;
+        if (!ok) await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      // ignore: avoid_print
+      print(
+        '[tempo] $label: ${ok ? '${sw.elapsedMilliseconds} ms' : 'NÃO conectou em 40 s'}',
+      );
+      await a2.hangup();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      a2.dispose();
+      b2.dispose();
+    }, timeout: const Timeout(Duration(minutes: 3)));
+  }
 }

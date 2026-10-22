@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -50,6 +52,19 @@ class CallController extends ChangeNotifier {
     this.iceServers = _stun,
   }) {
     _sub = transport.incoming.listen(_onSignal);
+  }
+
+  /// Arquivo de diagnóstico (`<dados>/calls.log`): tempos de cada etapa, para achar lentidão.
+  File? logFile;
+  final Stopwatch _clock = Stopwatch()..start();
+
+  void _log(String msg) {
+    final line =
+        '[call +${_clock.elapsedMilliseconds}ms ${DateTime.now().toIso8601String()}] $msg';
+    debugPrint(line);
+    try {
+      logFile?.writeAsStringSync('$line\n', mode: FileMode.append);
+    } catch (_) {}
   }
 
   final SignalTransport transport;
@@ -194,6 +209,33 @@ class CallController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _logSelectedPair() async {
+    try {
+      final stats = await stats_();
+      final byId = {for (final r in stats) r.id: r};
+      for (final r in stats) {
+        if (r.type == 'candidate-pair' &&
+            r.values['nominated'] == true &&
+            r.values['state'] == 'succeeded') {
+          String cand(Object? id) {
+            final c = byId[id];
+            return c == null
+                ? '?'
+                : '${c.values['candidateType']} ${c.values['address'] ?? c.values['ip']}:${c.values['port']} (${c.values['protocol']})';
+          }
+
+          _log(
+            'par escolhido: local=${cand(r.values['localCandidateId'])} remoto=${cand(r.values['remoteCandidateId'])}',
+          );
+        }
+      }
+    } catch (e) {
+      _log('não consegui ler o par escolhido: $e');
+    }
+  }
+
+  Future<List<StatsReport>> stats_() async => await _pc?.getStats() ?? const [];
+
   /// Estatísticas WebRTC (testes e diagnóstico).
   Future<List<StatsReport>> stats() async => await _pc?.getStats() ?? const [];
 
@@ -203,6 +245,7 @@ class CallController extends ChangeNotifier {
     final m = s.msg;
     final t = m['t'];
     final id = m['id'];
+    _log('recebido $t (fase $phase)');
     if (t == 'invite') {
       if (phase != CallPhase.idle) {
         unawaited(
@@ -299,12 +342,17 @@ class CallController extends ChangeNotifier {
       }
       notifyListeners();
     };
+    pc.onIceGatheringState = (s) => _log('ICE gathering: $s');
+    pc.onIceConnectionState = (s) => _log('ICE connection: $s');
+    pc.onSignalingState = (s) => _log('signaling: $s');
     pc.onConnectionState = (s) {
+      _log('connection: $s');
       if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected &&
           phase == CallPhase.connecting) {
         _timer?.cancel();
         phase = CallPhase.connected;
         notifyListeners();
+        unawaited(_logSelectedPair());
       } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
         _end('a conexão falhou', notify: true);
       }
@@ -355,9 +403,11 @@ class CallController extends ChangeNotifier {
   }
 
   Future<void> _startAsCaller() async {
+    _log('chamador: abrindo a mídia');
     try {
       final pc = _pc = await _newPeerConnection();
       await _attachLocalMedia(pc);
+      _log('chamador: mídia pronta, gerando oferta');
       await _negotiate();
     } catch (e) {
       await _send({'t': 'hangup'}).catchError((_) {});
@@ -390,7 +440,8 @@ class CallController extends ChangeNotifier {
       // `signalingState` é nulo numa conexão nova (nenhum evento ainda): conta como estável.
       final st = pc.signalingState;
       final collision =
-          _makingOffer || (st != null && st != RTCSignalingState.RTCSignalingStateStable);
+          _makingOffer ||
+          (st != null && st != RTCSignalingState.RTCSignalingStateStable);
       // Atendente é "educado": cede em caso de oferta simultânea; o chamador ignora a do outro.
       if (collision && _caller) return;
       if (collision) {
@@ -400,6 +451,9 @@ class CallController extends ChangeNotifier {
         RTCSessionDescription(m['sdp'] as String, m['type'] as String),
       );
       _remoteSet = true;
+      _log(
+        'atendente: oferta aplicada, ${_pendingIce.length} candidatos pendentes',
+      );
       await _flushIce(pc);
       final answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -449,7 +503,14 @@ class CallController extends ChangeNotifier {
   Future<void> _send(Map<String, dynamic> msg) async {
     final p = peer;
     if (p == null) return;
-    await transport.send(p, {...msg, 'id': _id});
+    final sw = Stopwatch()..start();
+    try {
+      await transport.send(p, {...msg, 'id': _id});
+      _log('enviado ${msg['t']} em ${sw.elapsedMilliseconds} ms');
+    } catch (e) {
+      _log('FALHA ao enviar ${msg['t']} após ${sw.elapsedMilliseconds} ms: $e');
+      rethrow;
+    }
   }
 
   // ------------------------------------------------------------------ fim
