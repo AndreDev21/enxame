@@ -117,8 +117,16 @@ async fn start(cfg: Config) -> Result<Enxame> {
     Ok(Enxame::start(cfg, store.as_ref()).await?)
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    let runtime = tokio::runtime::Runtime::new()?;
+    let result = runtime.block_on(run());
+    // A leitura de `stdin` do tokio ocupa uma thread bloqueante até alguém apertar Enter; o drop
+    // normal do runtime esperaria por ela e o processo não sairia com Ctrl-C. Não esperamos.
+    runtime.shutdown_background();
+    result
+}
+
+async fn run() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()))
         .with_writer(std::io::stderr)
