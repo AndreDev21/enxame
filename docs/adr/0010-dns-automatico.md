@@ -44,3 +44,16 @@ Sem rede, o custo é um só timeout de 4 s na subida; com DNS saudável, a latê
 
 Cobertura da lógica por testes (`net::tests`). Em campo, nesta máquina (resolvedor do Tailscale), o
 `diag` sem `ENXAME_DNS_SERVERS` detectou o problema, usou o fallback e alcançou um contato pelo relay.
+
+### Campo (2026-10-22, build `a9837be`, sem `ENXAME_DNS_SERVERS`)
+
+| Máquina | Rede | Resolvedor | Resultado do `diag` |
+|---|---|---|---|
+| André | LAN + Tailscale | MagicDNS | `DNS: automático` (o sistema não resolveu o relay); alcançou o notebook pelo relay |
+| bob | LAN, roteador `192.168.0.1` | roteador | `DNS: automático`; relay `use1-1` alcançado; vê andre/jean (direto) e andrecasa (direto, 37 ms) |
+| jean | mesma LAN do bob | roteador | `DNS: automático`; relay `use1-1` alcançado |
+| andrecasa | outra cidade, Tailscale | `100.100.100.100` | `DNS: sistema` (o MagicDNS dela resolve o relay): o app não força o fallback quando não precisa |
+
+O roteador do bob e o do jean são o caso original (descarta EDNS): antes exigiam `ENXAME_DNS_SERVERS`,
+agora funcionam sozinhos. O MagicDNS da andrecasa resolve, então o comportamento correto é manter o
+sistema.

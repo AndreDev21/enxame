@@ -55,7 +55,7 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
 **Setup simples para o usuário básico**: instalar e usar, sem terminal, Docker, variáveis de ambiente
 ou relay para configurar. Relay padrão = os públicos do iroh; relay/nó próprio (Docker) é **opt-in**
 para quem quer garantia. Está na spec (1.1, 11, 13/Fase 6, 16.8) e no
-[ADR 0008](adr/0008-simplicidade-de-setup-e-relay.md). **DNS com fallback automático**: feito (ADR 0010; detecta o resolvedor do sistema que não resolve o
+[ADR 0008](adr/0008-simplicidade-de-setup-e-relay.md). **DNS com fallback automático**: feito (ADR 0010, validado em campo com bob, jean e andrecasa; detecta o resolvedor do sistema que não resolve o
 relay e passa a 1.1.1.1/8.8.8.8; `dns_servers` continua mandando).
 
 ## Pendências e dívidas conhecidas
