@@ -48,6 +48,26 @@ pub enum Ingest {
     Duplicate,
 }
 
+/// Valida o conteúdo decifrado conforme o tipo: texto UTF-8 limitado, ou `FileRef` bem formado.
+fn check_content(kind: EnvelopeKind, plain: &[u8], max_file_bytes: u64) -> Result<()> {
+    match kind {
+        EnvelopeKind::Text => {
+            if plain.len() > MAX_TEXT_BYTES || std::str::from_utf8(plain).is_err() {
+                return Err(Error::Protocol("texto inválido".into()));
+            }
+        }
+        EnvelopeKind::FileRef => {
+            crate::files::FileRef::decode(plain, max_file_bytes)?;
+        }
+        _ => {
+            return Err(Error::Protocol(
+                "tipo de envelope ainda não suportado".into(),
+            ))
+        }
+    }
+    Ok(())
+}
+
 /// Valida, decifra e guarda um envelope vindo do par. Qualquer falha descarta o envelope.
 ///
 /// Ordem: estrutura/id/assinatura → conversa permitida → autor é o par ou eu → HLC não está no
@@ -57,6 +77,7 @@ pub async fn ingest(
     identity: &Identity,
     peer_pk: &[u8; 32],
     allowed: &[[u8; 32]],
+    max_file_bytes: u64,
     env: Envelope,
 ) -> Result<Ingest> {
     env.verify()?;
@@ -72,7 +93,7 @@ pub async fn ingest(
     if env.hlc.ms > now.saturating_add(MAX_FUTURE_MS) {
         return Err(Error::Protocol("HLC no futuro".into()));
     }
-    if env.kind != EnvelopeKind::Text {
+    if !matches!(env.kind, EnvelopeKind::Text | EnvelopeKind::FileRef) {
         return Err(Error::Protocol(
             "tipo de envelope ainda não suportado".into(),
         ));
@@ -82,9 +103,7 @@ pub async fn ingest(
         return Ok(Ingest::Duplicate);
     }
     let plain = env.open(identity)?;
-    if plain.len() > MAX_TEXT_BYTES || std::str::from_utf8(&plain).is_err() {
-        return Err(Error::Protocol("texto inválido".into()));
-    }
+    check_content(env.kind, &plain, max_file_bytes)?;
     let outgoing = env.author == identity.identity_pk();
     let inserted = store
         .run(move |c| store::envelope_insert(c, &env, Some(&plain), outgoing, now))
@@ -103,6 +122,7 @@ pub async fn ingest_carried(
     store: &Store,
     identity: &Identity,
     contacts: &[crate::contacts::Contact],
+    max_file_bytes: u64,
     env: Envelope,
 ) -> Result<(Ingest, [u8; 32])> {
     env.verify()?;
@@ -120,7 +140,7 @@ pub async fn ingest_carried(
     if env.hlc.ms > now.saturating_add(MAX_FUTURE_MS) {
         return Err(Error::Protocol("HLC no futuro".into()));
     }
-    if env.kind != EnvelopeKind::Text {
+    if !matches!(env.kind, EnvelopeKind::Text | EnvelopeKind::FileRef) {
         return Err(Error::Protocol(
             "tipo de envelope ainda não suportado".into(),
         ));
@@ -130,9 +150,7 @@ pub async fn ingest_carried(
         return Ok((Ingest::Duplicate, pk));
     }
     let plain = env.open(identity)?;
-    if plain.len() > MAX_TEXT_BYTES || std::str::from_utf8(&plain).is_err() {
-        return Err(Error::Protocol("texto inválido".into()));
-    }
+    check_content(env.kind, &plain, max_file_bytes)?;
     let inserted = store
         .run(move |c| store::envelope_insert(c, &env, Some(&plain), false, now))
         .await?;
@@ -156,6 +174,8 @@ pub struct Session<'a> {
     pub max_frame: usize,
     /// Chamado para cada envelope novo guardado.
     pub on_stored: &'a (dyn Fn(&Envelope) + Send + Sync),
+    /// Maior arquivo que aceitamos receber (`FileRef`).
+    pub max_file_bytes: u64,
     /// Hashes dos meus contatos mútuos (salgados com esta conversa), enviados no início.
     pub common_hashes: Vec<[u8; 32]>,
     /// Recebe os hashes de contatos mútuos do par.
@@ -423,6 +443,7 @@ impl Session<'_> {
                             self.identity,
                             &self.peer_pk,
                             &self.conversations,
+                            self.max_file_bytes,
                             env,
                         )
                         .await
@@ -561,6 +582,7 @@ mod tests {
             conversations: vec![conv(a, b)],
             max_frame: 1 << 20,
             on_stored: &nop,
+            max_file_bytes: 1 << 30,
             common_hashes: vec![],
             on_common: &|_| {},
             on_role: &|_| {},
@@ -573,6 +595,7 @@ mod tests {
             conversations: vec![conv(a, b)],
             max_frame: 1 << 20,
             on_stored: &nop,
+            max_file_bytes: 1 << 30,
             common_hashes: vec![],
             on_common: &|_| {},
             on_role: &|_| {},
@@ -728,6 +751,7 @@ mod tests {
             conversations: vec![c],
             max_frame: 1 << 20,
             on_stored: &nop,
+            max_file_bytes: 1 << 30,
             common_hashes: vec![],
             on_common: &|_| {},
             on_role: &|_| {},
@@ -784,6 +808,60 @@ mod tests {
         assert_eq!(count(&victim, conv(&victim, &peer)).await, 0);
     }
 
+    fn file_env(from: &Node, to: &Node, size: u64, name: &str) -> Envelope {
+        let fr = crate::FileRef {
+            blob_hash: [4; 32],
+            size,
+            name: name.into(),
+            mime: "application/octet-stream".into(),
+            file_key: [5; 32],
+        };
+        Envelope::create(
+            &from.id,
+            conv(from, to),
+            Hlc::new(5, 0),
+            vec![],
+            &[to.rcpt(), from.rcpt()],
+            EnvelopeKind::FileRef,
+            &fr.encode().unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_valid_file_message_is_stored_and_ordered_like_text() {
+        let (a, b) = (Node::new(), Node::new());
+        put(&a, &[make(&a, &b, 1, vec![], "antes")]).await;
+        let f = file_env(&a, &b, 5000, "foto.png");
+        put(&a, std::slice::from_ref(&f)).await;
+        sync_pair(&a, &b).await;
+        assert_eq!(ids_of(&b, conv(&a, &b)).await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn malicious_file_messages_are_rejected() {
+        // Tamanho acima do limite (1 GiB nos testes), nome vazio ou gigante, e FileRef quebrado.
+        let (victim, peer) = (Node::new(), Node::new());
+        let huge = file_env(&peer, &victim, 5 << 30, "enorme.bin");
+        let empty_name = file_env(&peer, &victim, 10, "");
+        let long_name = file_env(&peer, &victim, 10, &"x".repeat(300));
+        let garbage = Envelope::create(
+            &peer.id,
+            conv(&victim, &peer),
+            Hlc::new(5, 0),
+            vec![],
+            &[victim.rcpt()],
+            EnvelopeKind::FileRef,
+            b"isto nao e um FileRef",
+        )
+        .unwrap();
+        for bad in [huge, empty_name, long_name, garbage] {
+            let stats = run_against_evil(&victim, &peer, bad.clone(), vec![bad]).await;
+            assert_eq!(stats.received, 0);
+        }
+        assert_eq!(count(&victim, conv(&victim, &peer)).await, 0);
+    }
+
     #[tokio::test]
     async fn envelope_from_the_far_future_is_rejected() {
         let (victim, peer) = (Node::new(), Node::new());
@@ -809,6 +887,7 @@ mod tests {
             conversations: vec![conv(n, peer)],
             max_frame: 1 << 20,
             on_stored: &NOP,
+            max_file_bytes: 1 << 30,
             common_hashes: common,
             on_common,
             on_role,

@@ -88,6 +88,15 @@ pub enum RejectReason {
     Invalid,
 }
 
+/// Blob oferecido para replicação junto com uma oferta de carry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobOffer {
+    /// Raiz (`HashSeq`) do arquivo cifrado.
+    pub hash: [u8; 32],
+    /// Tamanho do ciphertext, para o carrier decidir antes de baixar.
+    pub enc_size: u64,
+}
+
 /// Mensagens de `enxame/carry/1` (spec 9). Sessão simétrica; cada `Deliver` recebe exatamente um
 /// `Receipts` de volta e cada `Offer` exatamente um `Accept`/`Reject`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,10 +111,13 @@ pub enum CarryMsg {
     Deliver {
         envelopes: Vec<Envelope>,
     },
-    /// Peço que você carregue estes envelopes (meus) para `for_recipient`.
+    /// Peço que você carregue estes envelopes (meus) para `for_recipient`. `blobs` são os
+    /// arquivos referenciados por envelopes `FileRef` da oferta: o carrier (`Relay`/`SuperPeer`)
+    /// pode replicá-los de mim para que o destinatário baixe mesmo com o meu nó offline.
     Offer {
         for_recipient: [u8; 32],
         envelopes: Vec<Envelope>,
+        blobs: Vec<BlobOffer>,
     },
     Accept {
         ids: Vec<[u8; 32]>,
@@ -249,6 +261,10 @@ mod tests {
             CarryMsg::Offer {
                 for_recipient: [4; 32],
                 envelopes: vec![],
+                blobs: vec![BlobOffer {
+                    hash: [6; 32],
+                    enc_size: 77,
+                }],
             },
             CarryMsg::Accept { ids: vec![[5; 32]] },
             CarryMsg::Reject {

@@ -185,7 +185,9 @@ async fn relay_only_nodes_connect_and_diag_reports_relay() {
             .await
             .unwrap();
         endpoint.online().await;
-        let node = Enxame::start_with_endpoint(cfg, identity, "teste", endpoint).unwrap();
+        let node = Enxame::start_with_endpoint(cfg, identity, "teste", endpoint)
+            .await
+            .unwrap();
         TestNode { node, _dir: dir }
     }
 

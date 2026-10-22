@@ -1,7 +1,10 @@
 //! `Enxame`: ponto de entrada da API do core (spec 3.1).
 
 mod carry_flow;
+mod files;
 mod runtime;
+
+pub use files::{Downloaded, FileEntry, PrefetchedBlob};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -14,6 +17,7 @@ use std::{
 
 use iroh::{
     endpoint::{Connection, RecvStream, SendStream},
+    protocol::ProtocolHandler,
     Endpoint, EndpointAddr, EndpointId,
 };
 use tokio::{
@@ -102,6 +106,28 @@ pub struct Message {
     /// Só para mensagens minhas: o destinatário já a recebeu (direto ou por recibo de um
     /// carrier). `None` nas mensagens recebidas.
     pub delivered: Option<bool>,
+    /// Quando a mensagem é um arquivo (`text` traz uma descrição "📎 nome (tamanho)").
+    pub file: Option<MessageFile>,
+}
+
+/// Arquivo anexado a uma mensagem.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageFile {
+    pub name: String,
+    pub size: u64,
+    pub mime: String,
+    pub blob: [u8; 32],
+}
+
+/// Resultado de [`Enxame::send_file`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentFile {
+    /// Uma mensagem por destinatário, na ordem em que foram pedidos.
+    pub messages: Vec<SentMessage>,
+    pub name: String,
+    pub size: u64,
+    /// Raiz do blob (id do arquivo na rede).
+    pub blob: [u8; 32],
 }
 
 /// Opções de inicialização para integradores e testes.
@@ -145,6 +171,11 @@ struct PendingEntry {
 }
 
 struct Inner {
+    blobs: files::BlobsRt,
+    /// Fila de blobs a replicar como carrier.
+    prefetch_tx: tokio::sync::mpsc::UnboundedSender<files::PrefetchJob>,
+    /// Bytes de blobs enviados a contatos (inclui os meus próprios arquivos).
+    files_sent_bytes: AtomicU64,
     cfg: Config,
     identity: Identity,
     keystore_name: &'static str,
@@ -209,6 +240,11 @@ impl Inner {
         guard.1.clone()
     }
 
+    /// Ensina ao endpoint como alcançar o contato (o `Downloader` conecta só por `EndpointId`).
+    fn register_addr(&self, c: &Contact) {
+        self.blobs.lookup.add_endpoint_info(c.node_addr.clone());
+    }
+
     fn mutual_contacts(&self) -> Vec<Contact> {
         self.book()
             .list()
@@ -260,13 +296,13 @@ impl Enxame {
             tracing::info!(fingerprint = %fingerprint(&identity.identity_pk()), "identidade criada");
         }
         let endpoint = net::bind_endpoint(&cfg, &identity).await?;
-        Self::start_with_endpoint_opts(cfg, identity, keystore.describe(), endpoint, opts)
+        Self::start_with_endpoint_opts(cfg, identity, keystore.describe(), endpoint, opts).await
     }
 
     /// Como [`Enxame::start`], mas com um endpoint já criado pelo chamador (testes com relay
     /// local, transportes customizados). O endpoint deve usar `identity.device_secret()` como
     /// chave; os ALPNs do Enxame são registrados aqui.
-    pub fn start_with_endpoint(
+    pub async fn start_with_endpoint(
         cfg: Config,
         identity: Identity,
         keystore_name: &'static str,
@@ -279,10 +315,11 @@ impl Enxame {
             endpoint,
             StartOptions::default(),
         )
+        .await
     }
 
     /// Como [`Enxame::start_with_endpoint`], com [`StartOptions`].
-    pub fn start_with_endpoint_opts(
+    pub async fn start_with_endpoint_opts(
         cfg: Config,
         identity: Identity,
         keystore_name: &'static str,
@@ -299,6 +336,7 @@ impl Enxame {
             ALPN_CONTACT.to_vec(),
             ALPN_SYNC.to_vec(),
             ALPN_CARRY.to_vec(),
+            iroh_blobs::ALPN.to_vec(),
         ]);
         let role_mode = RoleMode::parse(&cfg.role)?;
         let initial_role = match role_mode {
@@ -317,7 +355,12 @@ impl Enxame {
         let contacts = ContactBook::open(store.clone())?;
         let clock = HlcClock::resume_from(store.with(|c| store::max_hlc(c))?);
         let (events, _) = broadcast::channel(64);
+        let (blobs, provider_rx) = files::open_blobs(&cfg, &endpoint).await?;
+        let (prefetch_tx, prefetch_rx) = tokio::sync::mpsc::unbounded_channel();
         let inner = Arc::new(Inner {
+            blobs,
+            prefetch_tx,
+            files_sent_bytes: AtomicU64::new(0),
             cfg,
             identity,
             keystore_name,
@@ -340,7 +383,15 @@ impl Enxame {
             started: Instant::now(),
             limiter: Mutex::new((None, Arc::new(RateLimiter::new(None)))),
         });
-        let mut tasks = vec![tokio::spawn(accept_loop(inner.clone()))];
+        for c in inner.mutual_contacts() {
+            inner.register_addr(&c);
+        }
+        let mut tasks = vec![
+            tokio::spawn(accept_loop(inner.clone())),
+            tokio::spawn(files::provider_policy(inner.clone(), provider_rx)),
+            tokio::spawn(files::maintenance_loop(inner.clone())),
+            tokio::spawn(files::prefetch_worker(inner.clone(), prefetch_rx)),
+        ];
         if inner.cfg.sync_interval_secs > 0 {
             tasks.push(tokio::spawn(sync_loop(inner.clone())));
         }
@@ -409,6 +460,11 @@ impl Enxame {
             t.abort();
         }
         self.inner.endpoint.close().await;
+        // Libera o store de blobs (a trava de arquivo do banco): sem isso um novo `start` no
+        // mesmo diretório ficaria esperando.
+        if let Err(e) = self.inner.blobs.store.shutdown().await {
+            tracing::debug!("erro ao encerrar o store de blobs: {e}");
+        }
     }
 
     /// Chave pública de identidade.
@@ -503,6 +559,7 @@ impl Enxame {
             ContactMsg::Accept => {
                 let contact = contact_from_ticket(&ticket, ContactStatus::Mutual);
                 inner.book().upsert(contact.clone())?;
+                inner.register_addr(&contact);
                 inner.emit(Event::ContactAdded {
                     display_name: contact.display_name.clone(),
                     fingerprint: contact.fingerprint(),
@@ -560,7 +617,6 @@ impl Enxame {
     /// Envia uma mensagem de texto a um contato mútuo. A mensagem é guardada antes de qualquer
     /// tentativa de rede; se o par estiver offline ela segue na próxima sincronização.
     pub async fn send_text(&self, contact: &str, text: &str) -> Result<SentMessage> {
-        let inner = &self.inner;
         if text.trim().is_empty() {
             return Err(Error::Contact("mensagem vazia".into()));
         }
@@ -569,63 +625,75 @@ impl Enxame {
                 "mensagem acima de {MAX_TEXT_BYTES} bytes"
             )));
         }
-        let c = inner.book().resolve(contact)?.clone();
-        if !c.is_mutual() {
-            return Err(Error::Contact(
-                "o contato ainda não aceitou (não é mútuo)".into(),
-            ));
-        }
-        let me = inner.identity.identity_pk();
-        let conv = dm_conversation_id(&me, &c.identity_pk);
-        let parents = inner.store.run(move |db| store::heads(db, &conv)).await?;
-        let hlc = inner.clock().tick(unix_now_ms());
-        let env = Envelope::create(
-            &inner.identity,
-            conv,
-            hlc,
-            parents,
-            &[
-                Recipient {
-                    identity_pk: c.identity_pk,
-                    enc_pk: c.enc_pk,
-                },
-                Recipient {
-                    identity_pk: me,
-                    enc_pk: inner.identity.enc_pk(),
-                },
-            ],
+        send_envelope(
+            &self.inner,
+            contact,
             EnvelopeKind::Text,
-            text.as_bytes(),
-        )?;
-        let id = env.id;
-        let plain = text.as_bytes().to_vec();
-        let cpk = c.identity_pk;
-        inner
-            .store
-            .run(move |db| {
-                store::envelope_insert(db, &env, Some(&plain), true, unix_now_ms())?;
-                store::pending_add(db, &id, &cpk, unix_now_ms())
-            })
-            .await?;
-        match sync_with(inner, &c).await {
-            Ok(_) => Ok(SentMessage {
-                id,
-                synced: true,
-                error: None,
-                carriers: 0,
-            }),
-            Err(e) => {
-                tracing::debug!("mensagem guardada, par inacessível: {e}");
-                // Contato offline: pede a contatos em comum que carreguem até ele voltar.
-                let carriers = carry_flow::offer_to_carriers(inner, &c).await.unwrap_or(0);
-                Ok(SentMessage {
-                    id,
-                    synced: false,
-                    error: Some(e.to_string()),
-                    carriers,
-                })
-            }
-        }
+            text.as_bytes().to_vec(),
+        )
+        .await
+    }
+
+    /// Cifra e envia um arquivo a um contato mútuo (veja [`Enxame::send_file_to`]).
+    pub async fn send_file(&self, contact: &str, path: &std::path::Path) -> Result<SentFile> {
+        self.send_file_to(&[contact], path).await
+    }
+
+    /// Cifra o arquivo **uma vez** e envia o mesmo `FileRef` a vários contatos. O arquivo é
+    /// cifrado em streaming, importado nos blobs e anunciado por uma mensagem `FileRef` (E2E);
+    /// quem recebe baixa de todos os contatos que o tiverem, e quem já baixou vira fonte para os
+    /// demais.
+    pub async fn send_file_to(
+        &self,
+        contacts: &[&str],
+        path: &std::path::Path,
+    ) -> Result<SentFile> {
+        let (messages, fr) = files::send_file(&self.inner, contacts, path).await?;
+        Ok(SentFile {
+            messages,
+            name: fr.name,
+            size: fr.size,
+            blob: fr.blob_hash,
+        })
+    }
+
+    /// Arquivos da conversa com `contact`, do mais antigo ao mais novo.
+    pub async fn files(&self, contact: &str) -> Result<Vec<files::FileEntry>> {
+        files::list_files(&self.inner, contact).await
+    }
+
+    /// Baixa o arquivo `which` (posição em [`Enxame::files`] ou prefixo do id) de todos os
+    /// contatos que o tiverem, decifra em `dest_dir` (padrão: `download_dir` da configuração) e
+    /// passa a semeá-lo. Continua de onde parou se uma tentativa anterior foi interrompida.
+    pub async fn download_file(
+        &self,
+        contact: &str,
+        which: &str,
+        dest_dir: Option<std::path::PathBuf>,
+    ) -> Result<files::Downloaded> {
+        files::download(&self.inner, contact, which, dest_dir).await
+    }
+
+    /// Arquivos que este nó guarda como carrier (pré-replicados), com o prazo de cada um.
+    pub async fn prefetched_blobs(&self) -> Result<Vec<PrefetchedBlob>> {
+        files::list_prefetched(&self.inner).await
+    }
+
+    /// O blob (raiz) está completo no store local? (diagnóstico e testes)
+    #[doc(hidden)]
+    pub async fn has_blob(&self, hash: [u8; 32]) -> bool {
+        files::has_blob(&self.inner, hash).await
+    }
+
+    /// Vence agora as cópias replicadas e roda a manutenção (testes).
+    #[doc(hidden)]
+    pub async fn expire_prefetched_now(&self) -> Result<()> {
+        files::expire_prefetched_now(&self.inner).await
+    }
+
+    /// Bytes de arquivos enviados a contatos desde que o nó subiu (inclui os seus próprios).
+    pub fn file_bytes_sent(&self) -> u64 {
+        self.inner.files_sent_bytes.load(Ordering::Relaxed)
     }
 
     /// Sincroniza a conversa com um contato mútuo agora.
@@ -661,8 +729,18 @@ impl Enxame {
         let mut out: Vec<Message> = order
             .iter()
             .filter_map(|id| by_id.get(id))
-            .filter(|s| s.envelope.kind == EnvelopeKind::Text)
-            .map(|s| Message {
+            .filter(|s| matches!(s.envelope.kind, EnvelopeKind::Text | EnvelopeKind::FileRef))
+            .map(|s| {
+                // Arquivo: a descrição vem do `FileRef` (a chave nunca sai desta função).
+                let file = (s.envelope.kind == EnvelopeKind::FileRef)
+                    .then(|| {
+                        let max = inner.cfg.max_file_mb.saturating_mul(1024 * 1024);
+                        crate::FileRef::decode(s.plaintext.as_deref().unwrap_or_default(), max).ok()
+                    })
+                    .flatten();
+                (s, file)
+            })
+            .map(|(s, file)| Message {
                 id: s.envelope.id,
                 from_me: s.outgoing,
                 author_name: if s.outgoing {
@@ -671,10 +749,19 @@ impl Enxame {
                     c.display_name.clone()
                 },
                 hlc: s.envelope.hlc,
-                text: String::from_utf8_lossy(s.plaintext.as_deref().unwrap_or_default())
-                    .into_owned(),
+                text: match &file {
+                    Some(f) => f.describe(),
+                    None => String::from_utf8_lossy(s.plaintext.as_deref().unwrap_or_default())
+                        .into_owned(),
+                },
                 received_at_ms: s.received_at,
                 delivered: s.outgoing.then(|| !pending.contains(&s.envelope.id)),
+                file: file.map(|f| MessageFile {
+                    name: crate::sanitize_name(&f.name),
+                    size: f.size,
+                    mime: f.mime,
+                    blob: f.blob_hash,
+                }),
             })
             .collect();
         let skip = out.len().saturating_sub(limit);
@@ -721,6 +808,73 @@ impl Enxame {
         out.metrics = Some(monitor.wait_direct(direct_wait).await);
         conn.close(0u32.into(), b"diag done");
         out
+    }
+}
+
+/// Cria, guarda e entrega um envelope 1:1 (texto ou `FileRef`) a um contato mútuo. O envelope é
+/// guardado antes de qualquer tentativa de rede; com o contato offline, pede carriers.
+async fn send_envelope(
+    inner: &Inner,
+    contact: &str,
+    kind: EnvelopeKind,
+    plain: Vec<u8>,
+) -> Result<SentMessage> {
+    let c = inner.book().resolve(contact)?.clone();
+    if !c.is_mutual() {
+        return Err(Error::Contact(
+            "o contato ainda não aceitou (não é mútuo)".into(),
+        ));
+    }
+    let me = inner.identity.identity_pk();
+    let conv = dm_conversation_id(&me, &c.identity_pk);
+    let parents = inner.store.run(move |db| store::heads(db, &conv)).await?;
+    let hlc = inner.clock().tick(unix_now_ms());
+    let env = Envelope::create(
+        &inner.identity,
+        conv,
+        hlc,
+        parents,
+        &[
+            Recipient {
+                identity_pk: c.identity_pk,
+                enc_pk: c.enc_pk,
+            },
+            Recipient {
+                identity_pk: me,
+                enc_pk: inner.identity.enc_pk(),
+            },
+        ],
+        kind,
+        &plain,
+    )?;
+    let id = env.id;
+    let plain_store = plain.clone();
+    let cpk = c.identity_pk;
+    inner
+        .store
+        .run(move |db| {
+            store::envelope_insert(db, &env, Some(&plain_store), true, unix_now_ms())?;
+            store::pending_add(db, &id, &cpk, unix_now_ms())
+        })
+        .await?;
+    match sync_with(inner, &c).await {
+        Ok(_) => Ok(SentMessage {
+            id,
+            synced: true,
+            error: None,
+            carriers: 0,
+        }),
+        Err(e) => {
+            tracing::debug!("mensagem guardada, par inacessível: {e}");
+            // Contato offline: pede a contatos em comum que carreguem até ele voltar.
+            let carriers = carry_flow::offer_to_carriers(inner, &c).await.unwrap_or(0);
+            Ok(SentMessage {
+                id,
+                synced: false,
+                error: Some(e.to_string()),
+                carriers,
+            })
+        }
     }
 }
 
@@ -870,6 +1024,7 @@ async fn run_session(
         conversations: vec![conv],
         max_frame: inner.cfg.max_frame_bytes,
         on_stored: &on_stored,
+        max_file_bytes: inner.cfg.max_file_mb.saturating_mul(1024 * 1024),
         common_hashes,
         on_common: &on_common,
         on_role: &on_role,
@@ -1059,6 +1214,12 @@ async fn accept_loop(inner: Arc<Inner>) {
                 a if a == ALPN_CONTACT => handle_contact(&inner, &conn).await,
                 a if a == ALPN_SYNC => handle_sync(&inner, &conn).await,
                 a if a == ALPN_CARRY => carry_flow::handle_carry(&inner, &conn).await,
+                a if a == iroh_blobs::ALPN => inner
+                    .blobs
+                    .protocol
+                    .accept(conn.clone())
+                    .await
+                    .map_err(|e| Error::Net(format!("blobs: {e}"))),
                 _ => Ok(()),
             };
             if let Err(e) = result {
@@ -1145,6 +1306,7 @@ async fn handle_contact(inner: &Inner, conn: &Connection) -> Result<()> {
             .is_some_and(|c| c.is_mutual());
         let contact = contact_from_ticket(&ticket, ContactStatus::Mutual);
         inner.book().upsert(contact.clone())?;
+        inner.register_addr(&contact);
         if !was_mutual {
             inner.emit(Event::ContactAdded {
                 display_name: contact.display_name.clone(),

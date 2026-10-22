@@ -31,6 +31,9 @@ pub enum Error {
     /// Falha no banco de dados local.
     #[error("banco de dados: {0}")]
     Store(String),
+    /// Falha na camada de arquivos (blobs).
+    #[error("arquivos: {0}")]
+    Blob(String),
     /// Falha criptográfica (autenticação, formato de chave, destinatário).
     #[error("cripto: {0}")]
     Crypto(String),

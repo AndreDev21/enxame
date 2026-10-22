@@ -9,7 +9,7 @@ use iroh::endpoint::{Connection, RecvStream, SendStream};
 
 use super::{Inner, CLOSE_CODE_NOT_CONTACT};
 use crate::{
-    carry::{CarrySession, CarryStats, CARRIERS_PER_MESSAGE},
+    carry::{CarrySession, CarryStats, OfferSet, CARRIERS_PER_MESSAGE},
     contacts::Contact,
     crypto::Envelope,
     identity::unix_now_ms,
@@ -35,7 +35,7 @@ async fn run_carry(
     c: &Contact,
     recv: &mut RecvStream,
     send: &mut SendStream,
-    offers: Vec<(Contact, Vec<Envelope>)>,
+    offers: Vec<OfferSet>,
 ) -> Result<CarryStats> {
     let now = unix_now_ms();
     let _ = inner.store.run(move |db| store::expire(db, now)).await;
@@ -51,6 +51,12 @@ async fn run_carry(
         });
         inner.clock().observe(env.hlc, unix_now_ms());
     };
+    let on_blob_offer = |offerer: &Contact, blobs: Vec<crate::proto::BlobOffer>| {
+        let _ = inner.prefetch_tx.send(super::files::PrefetchJob {
+            offerer: offerer.clone(),
+            blobs,
+        });
+    };
     let session = CarrySession {
         store: &inner.store,
         identity: &inner.identity,
@@ -62,6 +68,8 @@ async fn run_carry(
         throughput: &inner.throughput,
         tick: &tick,
         on_received: &on_received,
+        max_file_bytes: inner.cfg.max_file_mb.saturating_mul(1024 * 1024),
+        on_blob_offer: &on_blob_offer,
         offers,
     };
     session.run(recv, send).await
@@ -71,7 +79,7 @@ async fn run_carry(
 pub(super) async fn carry_with(
     inner: &Inner,
     c: &Contact,
-    offers: Vec<(Contact, Vec<Envelope>)>,
+    offers: Vec<OfferSet>,
 ) -> Result<CarryStats> {
     let conn = dial_carry(inner, c).await?;
     let result = async {
@@ -133,10 +141,28 @@ pub(super) async fn offer_to_carriers(inner: &Inner, recipient: &Contact) -> Res
     }
     let ids: Vec<_> = ids.into_iter().take(OFFER_BATCH).collect();
     let ids2 = ids.clone();
-    let envs = inner
+    // Envelopes com o conteúdo decifrado: os `FileRef` dizem que blobs acompanham a mensagem.
+    let with_plain = inner
         .store
-        .run(move |db| store::envelopes_by_ids(db, &ids2))
+        .run(move |db| store::envelopes_with_plaintext(db, &ids2))
         .await?;
+    let max_file = inner.cfg.max_file_mb.saturating_mul(1024 * 1024);
+    let mut blob_of: HashMap<[u8; 32], crate::proto::BlobOffer> = HashMap::new();
+    let mut envs: Vec<Envelope> = Vec::new();
+    for (env, plain) in with_plain {
+        if env.kind == crate::crypto::EnvelopeKind::FileRef {
+            if let Some(fr) = plain.and_then(|p| crate::FileRef::decode(&p, max_file).ok()) {
+                blob_of.insert(
+                    env.id,
+                    crate::proto::BlobOffer {
+                        hash: fr.blob_hash,
+                        enc_size: fr.enc_size(),
+                    },
+                );
+            }
+        }
+        envs.push(env);
+    }
     let ids3 = ids.clone();
     let (common, mut offered) = inner
         .store
@@ -187,7 +213,16 @@ pub(super) async fn offer_to_carriers(inner: &Inner, recipient: &Contact) -> Res
         if todo.is_empty() {
             continue;
         }
-        match carry_with(inner, &cand, vec![(recipient.clone(), todo)]).await {
+        let blobs: Vec<crate::proto::BlobOffer> = todo
+            .iter()
+            .filter_map(|e| blob_of.get(&e.id).cloned())
+            .collect();
+        let offer = OfferSet {
+            to: recipient.clone(),
+            envelopes: todo,
+            blobs,
+        };
+        match carry_with(inner, &cand, vec![offer]).await {
             Ok(stats) => {
                 let _ = inner
                     .store

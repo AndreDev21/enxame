@@ -19,6 +19,15 @@ pub enum Event {
         from_name: String,
         from_fingerprint: String,
     },
+    /// Progresso de um envio (`upload`) ou download de arquivo. `id` é a raiz do blob (zeros
+    /// enquanto um envio ainda está sendo importado).
+    TransferProgress {
+        id: [u8; 32],
+        name: String,
+        done: u64,
+        total: u64,
+        upload: bool,
+    },
     /// A aceitação mútua foi concluída.
     ContactAdded {
         display_name: String,

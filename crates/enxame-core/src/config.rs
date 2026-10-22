@@ -139,6 +139,14 @@ pub struct Config {
     pub ticket_ttl_secs: u64,
     /// Tamanho máximo de frame de protocolo, em bytes.
     pub max_frame_bytes: usize,
+    /// Maior arquivo que aceitamos enviar ou receber, em MiB.
+    pub max_file_mb: u64,
+    /// `Relay`/`SuperPeer` replicam blobs de contatos até este tamanho, em MiB (spec 10).
+    pub prefetch_max_mb: u64,
+    /// Onde gravar os arquivos recebidos. Padrão: `<data_dir>/downloads`.
+    pub download_dir: Option<PathBuf>,
+    /// Intervalo da coleta de lixo dos blobs, em segundos.
+    pub blob_gc_interval_secs: u64,
 }
 
 impl Default for Config {
@@ -165,6 +173,10 @@ impl Default for Config {
             sync_interval_secs: 30,
             ticket_ttl_secs: 24 * 3600,
             max_frame_bytes: 1024 * 1024,
+            max_file_mb: 4096,
+            prefetch_max_mb: 50,
+            download_dir: None,
+            blob_gc_interval_secs: 300,
         }
     }
 }
@@ -241,6 +253,14 @@ impl Config {
                 .map(|x| x.trim().to_lowercase())
                 .filter(|x| !x.is_empty())
                 .collect();
+        }
+        if let Some(v) = env_nonempty("ENXAME_DOWNLOAD_DIR") {
+            cfg.download_dir = Some(PathBuf::from(v));
+        }
+        if let Some(v) = env_nonempty("ENXAME_MAX_FILE_MB") {
+            cfg.max_file_mb = v
+                .parse()
+                .map_err(|_| Error::Config("ENXAME_MAX_FILE_MB".into()))?;
         }
         if let Some(v) = env_nonempty("ENXAME_DNS_SERVERS") {
             cfg.dns_servers = v

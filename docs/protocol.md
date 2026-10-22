@@ -148,3 +148,29 @@ autor). Recibos são espalhados a cada sessão de carry (os 256 mais recentes).
 | Peer | texto | 10 MB / 100 MB | 7 dias |
 | Relay | texto (e `FileRef` a partir da Fase 4) | 25 MB / 250 MB | 7 dias |
 | SuperPeer | alta quota | 100 MB / 2 GB | 30 dias |
+
+## Fase 4 — arquivos
+
+### `FileRef` (conteúdo de um envelope `kind = FileRef`)
+`postcard( { blob_hash: [u8;32], size: u64, name: String, mime: String, file_key: [u8;32] } )`,
+cifrado como qualquer envelope. Validação ao receber: `size <= max_file_mb`, nome de 1 a 255
+caracteres, MIME ASCII sem espaços (até 127). `size` é o tamanho **em claro**.
+
+### Formato do arquivo cifrado (`filecrypt`)
+```
+"ENXF" | versão=1 | tam_bloco=65536 (u32 BE) | prefixo_nonce (19)     ← 28 bytes
+bloco_0 (65536 + 16) | bloco_1 | ... | último (1..=65536 + 16; 16 se o arquivo é vazio)
+```
+Bloco `i` cifrado com XChaCha20-Poly1305 e nonce `prefixo ‖ i (u32 BE) ‖ último (0/1)`.
+Tamanho total = `28 + tamanho + 16 · max(1, ⌈tamanho/65536⌉)`.
+
+### Blobs
+Ciphertext cortado em segmentos de 8 MiB; cada segmento é um blob BLAKE3 e `blob_hash` é a raiz do
+`HashSeq` com os hashes na ordem. Transporte: protocolo `iroh-blobs` (ALPN do crate), aceito só de
+contatos mútuos. O download pede a raiz inteira (`GetRequest::all`) e o `Downloader` reparte os
+segmentos entre os provedores.
+
+### `Offer.blobs` (`enxame/carry/1`)
+`Offer { for_recipient, envelopes, blobs: Vec<BlobOffer { hash, enc_size }> }`. Um carrier
+`Relay`/`SuperPeer` que aceitar ao menos um envelope busca os blobs do ofertante (limite
+`prefetch_max_mb`, quota de carry, e corte se passar de `enc_size`).

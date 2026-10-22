@@ -119,6 +119,17 @@ const MIGRATIONS: &[&str] = &[
         items        INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (month, contact)
      ) WITHOUT ROWID;",
+    // v3: arquivos (blobs). `origin`: 0 = enviado por mim, 1 = baixado, 2 = replicado como carrier.
+    "CREATE TABLE blobs (
+        hash       BLOB PRIMARY KEY,
+        origin     INTEGER NOT NULL,
+        plain_size INTEGER NOT NULL,
+        enc_size   INTEGER NOT NULL,
+        name       TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER
+     ) WITHOUT ROWID;
+     CREATE INDEX blobs_by_expiry ON blobs(expires_at) WHERE expires_at IS NOT NULL;",
 ];
 
 fn db<E: std::fmt::Display>(e: E) -> Error {
@@ -469,6 +480,29 @@ pub fn ids_since(
         ids.push(arr32(id)?);
     }
     Ok((ids, next))
+}
+
+/// Como [`envelopes_by_ids`], com o conteúdo decifrado guardado (meus envelopes).
+pub fn envelopes_with_plaintext(
+    conn: &Connection,
+    ids: &[[u8; 32]],
+) -> Result<Vec<(Envelope, Option<Vec<u8>>)>> {
+    let mut stmt = conn
+        .prepare("SELECT raw, plaintext FROM envelopes WHERE id = ?1")
+        .map_err(db)?;
+    let mut out = Vec::new();
+    for id in ids {
+        if let Some((raw, plain)) = stmt
+            .query_row([id.as_slice()], |r| {
+                Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Option<Vec<u8>>>(1)?))
+            })
+            .optional()
+            .map_err(db)?
+        {
+            out.push((postcard::from_bytes(&raw)?, plain));
+        }
+    }
+    Ok(out)
 }
 
 /// Envelopes completos pelos ids pedidos (os que não existem são omitidos).
@@ -851,6 +885,180 @@ fn role_from_i(i: i64) -> Option<crate::Role> {
         .copied()
 }
 
+// ----------------------------------------------------------------- arquivos
+
+/// De onde veio um blob que temos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlobOrigin {
+    /// Eu enviei: servir é uso normal, não contribuição.
+    Own,
+    /// Baixei de um contato e passei a semear.
+    Downloaded,
+    /// Replicado por ser carrier (tem prazo).
+    Prefetched,
+}
+
+impl BlobOrigin {
+    fn to_i(self) -> i64 {
+        match self {
+            Self::Own => 0,
+            Self::Downloaded => 1,
+            Self::Prefetched => 2,
+        }
+    }
+    fn from_i(i: i64) -> Self {
+        match i {
+            0 => Self::Own,
+            1 => Self::Downloaded,
+            _ => Self::Prefetched,
+        }
+    }
+}
+
+/// Registro de um blob (raiz) que temos.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlobRow {
+    pub hash: [u8; 32],
+    pub origin: BlobOrigin,
+    pub plain_size: u64,
+    pub enc_size: u64,
+    pub name: String,
+    pub created_at: u64,
+    pub expires_at: Option<u64>,
+}
+
+/// Insere ou atualiza (a origem `Own` nunca é rebaixada).
+pub fn blob_upsert(conn: &Connection, b: &BlobRow) -> Result<()> {
+    conn.execute(
+        "INSERT INTO blobs (hash, origin, plain_size, enc_size, name, created_at, expires_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7)
+         ON CONFLICT(hash) DO UPDATE SET
+            origin = MIN(origin, ?2),
+            expires_at = CASE WHEN MIN(origin, ?2) = 2 THEN COALESCE(?7, expires_at) ELSE NULL END",
+        params![
+            b.hash.as_slice(),
+            b.origin.to_i(),
+            b.plain_size as i64,
+            b.enc_size as i64,
+            b.name,
+            b.created_at as i64,
+            b.expires_at.map(|e| e as i64),
+        ],
+    )
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Colunas de `blobs`: hash, origem, tamanho em claro, tamanho cifrado, nome, criação, validade.
+type BlobCols = (Vec<u8>, i64, i64, i64, String, i64, Option<i64>);
+
+fn blob_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<BlobCols> {
+    Ok((
+        r.get(0)?,
+        r.get(1)?,
+        r.get(2)?,
+        r.get(3)?,
+        r.get(4)?,
+        r.get(5)?,
+        r.get(6)?,
+    ))
+}
+
+fn blob_make(t: BlobCols) -> Result<BlobRow> {
+    Ok(BlobRow {
+        hash: arr32(t.0)?,
+        origin: BlobOrigin::from_i(t.1),
+        plain_size: t.2 as u64,
+        enc_size: t.3 as u64,
+        name: t.4,
+        created_at: t.5 as u64,
+        expires_at: t.6.map(|e| e as u64),
+    })
+}
+
+pub fn blob_get(conn: &Connection, hash: &[u8; 32]) -> Result<Option<BlobRow>> {
+    conn.query_row(
+        "SELECT hash, origin, plain_size, enc_size, name, created_at, expires_at FROM blobs WHERE hash = ?1",
+        [hash.as_slice()],
+        blob_from_row,
+    )
+    .optional()
+    .map_err(db)?
+    .map(blob_make)
+    .transpose()
+}
+
+pub fn blob_list(conn: &Connection) -> Result<Vec<BlobRow>> {
+    let mut stmt = conn
+        .prepare("SELECT hash, origin, plain_size, enc_size, name, created_at, expires_at FROM blobs ORDER BY created_at")
+        .map_err(db)?;
+    let rows = stmt.query_map([], blob_from_row).map_err(db)?;
+    rows.map(|r| blob_make(r.map_err(db)?)).collect()
+}
+
+/// Raízes com prazo vencido.
+pub fn blobs_expired(conn: &Connection, now_ms: u64) -> Result<Vec<[u8; 32]>> {
+    let mut stmt = conn
+        .prepare("SELECT hash FROM blobs WHERE expires_at IS NOT NULL AND expires_at <= ?1")
+        .map_err(db)?;
+    let rows = stmt
+        .query_map([now_ms as i64], |r| r.get::<_, Vec<u8>>(0))
+        .map_err(db)?;
+    rows.map(|r| arr32(r.map_err(db)?)).collect()
+}
+
+/// Bytes de ciphertext replicados como carrier e ainda dentro do prazo.
+pub fn blobs_prefetched_bytes(conn: &Connection, now_ms: u64) -> Result<u64> {
+    let n: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(enc_size), 0) FROM blobs WHERE origin = 2 AND (expires_at IS NULL OR expires_at > ?1)",
+            [now_ms as i64],
+            |r| r.get(0),
+        )
+        .map_err(db)?;
+    Ok(n as u64)
+}
+
+pub fn blob_delete(conn: &Connection, hash: &[u8; 32]) -> Result<()> {
+    conn.execute("DELETE FROM blobs WHERE hash = ?1", [hash.as_slice()])
+        .map_err(db)?;
+    Ok(())
+}
+
+/// Envelopes `FileRef` da conversa (raw + plaintext), do mais antigo ao mais novo.
+pub fn filerefs_in_conversation(conn: &Connection, conv: &[u8; 32]) -> Result<Vec<StoredEnvelope>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT raw, plaintext, outgoing, received_at FROM envelopes
+             WHERE conversation_id = ?1 AND kind = ?2 ORDER BY hlc_ms, hlc_ctr, id",
+        )
+        .map_err(db)?;
+    let rows = stmt
+        .query_map(
+            params![conv.as_slice(), crate::crypto::EnvelopeKind::FileRef as i64],
+            |r| {
+                Ok((
+                    r.get::<_, Vec<u8>>(0)?,
+                    r.get::<_, Option<Vec<u8>>>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            },
+        )
+        .map_err(db)?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (raw, plaintext, outgoing, received_at) = row.map_err(db)?;
+        out.push(StoredEnvelope {
+            envelope: postcard::from_bytes(&raw)?,
+            plaintext,
+            outgoing: outgoing != 0,
+            received_at: received_at as u64,
+        });
+    }
+    Ok(out)
+}
+
 // ------------------------------------------------------------ contribuição
 
 /// Soma ao que servi no mês (`AAAAMM`) para o contato.
@@ -1147,6 +1355,43 @@ mod tests {
             assert_eq!(receipts_recent(c, 10)?.len(), 2);
             // O recibo vence junto com o TTL.
             assert_eq!(expire(c, 2_000_000)?, (0, 2));
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn blob_registry_keeps_own_origin_and_expires_prefetched() {
+        let s = Store::open_in_memory().unwrap();
+        s.with(|c| {
+            let row = |h: u8, origin, exp| BlobRow {
+                hash: [h; 32],
+                origin,
+                plain_size: 10,
+                enc_size: 60,
+                name: format!("f{h}"),
+                created_at: 1,
+                expires_at: exp,
+            };
+            blob_upsert(c, &row(1, BlobOrigin::Prefetched, Some(1000)))?;
+            blob_upsert(c, &row(2, BlobOrigin::Downloaded, None))?;
+            assert_eq!(blobs_expired(c, 999)?, Vec::<[u8; 32]>::new());
+            assert_eq!(blobs_expired(c, 1000)?, vec![[1; 32]]);
+            // Baixar de verdade um blob que só estava replicado o promove e tira o prazo.
+            blob_upsert(c, &row(1, BlobOrigin::Downloaded, None))?;
+            assert_eq!(
+                blob_get(c, &[1; 32])?.unwrap().origin,
+                BlobOrigin::Downloaded
+            );
+            assert_eq!(blob_get(c, &[1; 32])?.unwrap().expires_at, None);
+            assert!(blobs_expired(c, u64::MAX / 2)?.is_empty());
+            // Quem enviou nunca é rebaixado por um download posterior.
+            blob_upsert(c, &row(3, BlobOrigin::Own, None))?;
+            blob_upsert(c, &row(3, BlobOrigin::Downloaded, None))?;
+            assert_eq!(blob_get(c, &[3; 32])?.unwrap().origin, BlobOrigin::Own);
+            assert_eq!(blob_list(c)?.len(), 3);
+            blob_delete(c, &[3; 32])?;
+            assert!(blob_get(c, &[3; 32])?.is_none());
             Ok(())
         })
         .unwrap();

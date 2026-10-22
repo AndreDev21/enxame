@@ -64,6 +64,23 @@ enum Command {
     /// offline, a mensagem fica guardada e segue na próxima sincronização. Não rode junto com
     /// `serve`/`chat` no mesmo diretório: use `chat`.
     Send { contact: String, text: Vec<String> },
+    /// Envia um arquivo a um ou mais contatos (cifrado de ponta a ponta; o mesmo arquivo vira
+    /// fonte para os outros destinatários).
+    SendFile {
+        path: PathBuf,
+        #[arg(required = true)]
+        contacts: Vec<String>,
+    },
+    /// Lista os arquivos da conversa com um contato.
+    Files { contact: String },
+    /// Baixa um arquivo da conversa: o número de `files` (ou um prefixo do id).
+    Get {
+        contact: String,
+        which: String,
+        /// Pasta de destino (padrão: <dados>/downloads ou `download_dir`).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Mostra o histórico da conversa (lê só o banco local).
     History {
         contact: String,
@@ -208,6 +225,72 @@ async fn run() -> Result<()> {
                 );
             }
         }
+        Command::SendFile { path, contacts } => {
+            let node = start(load_config(&cli)?).await?;
+            let printer = progress_printer(&node);
+            let names: Vec<&str> = contacts.iter().map(String::as_str).collect();
+            let sent = node.send_file_to(&names, path).await;
+            printer.abort();
+            node.shutdown().await;
+            let sent = sent?;
+            println!(
+                "{} ({}) enviado a:",
+                sent.name,
+                enxame_core::human_size(sent.size)
+            );
+            for (c, m) in contacts.iter().zip(&sent.messages) {
+                if m.synced {
+                    println!(
+                        "  {c}: anunciado (o arquivo sai deste nó enquanto ele estiver online)"
+                    );
+                } else if m.carriers > 0 {
+                    println!("  {c}: offline; {} carrier(s) guardam o aviso", m.carriers);
+                } else {
+                    println!("  {c}: offline; o aviso segue na próxima sincronização");
+                }
+            }
+            println!("Dica: mantenha este nó online (`serve`/`chat`) para o destinatário baixar.");
+        }
+        Command::Files { contact } => {
+            let node = start(load_config(&cli)?).await?;
+            let files = node.files(contact).await;
+            node.shutdown().await;
+            let files = files?;
+            if files.is_empty() {
+                println!("(nenhum arquivo)");
+            }
+            for f in files {
+                println!(
+                    "{:>3}  {}  {:<32} {:>9}  {}",
+                    f.index,
+                    if f.available { "✓" } else { "↓" },
+                    f.name,
+                    enxame_core::human_size(f.size),
+                    if f.from_me {
+                        "enviado por mim"
+                    } else {
+                        "recebido"
+                    }
+                );
+            }
+        }
+        Command::Get {
+            contact,
+            which,
+            out,
+        } => {
+            let node = start(load_config(&cli)?).await?;
+            let printer = progress_printer(&node);
+            let got = node.download_file(contact, which, out.clone()).await;
+            printer.abort();
+            node.shutdown().await;
+            let got = got?;
+            println!(
+                "Salvo em {} ({})",
+                got.path.display(),
+                enxame_core::human_size(got.size)
+            );
+        }
         Command::History { contact, n } => {
             let cfg = load_config(&cli)?;
             let node = start(cfg).await?;
@@ -304,6 +387,7 @@ async fn chat(cfg: Config, contacts: &[String]) -> Result<()> {
             let _ = node.sync_now(&contact).await;
         });
     }
+    let mut last_pct: std::collections::HashMap<(String, bool), u64> = Default::default();
     // Contato (da lista) a que uma mensagem recebida pertence.
     let owner = |from_name: &str, from_fp: &str| {
         contacts.iter().find(|c| {
@@ -327,6 +411,14 @@ async fn chat(cfg: Config, contacts: &[String]) -> Result<()> {
                     println!("(pedido de contato de {display_name} [{fingerprint}]; use `serve` para responder)");
                 }
                 Ok(Event::RoleChanged { from, to }) => println!("(papel: {from:?} → {to:?})"),
+                Ok(Event::TransferProgress { name, done, total, upload, .. }) if total > 0 => {
+                    let bucket = done * 10 / total;
+                    let key = (name.clone(), upload);
+                    if last_pct.get(&key) != Some(&bucket) || done == total {
+                        last_pct.insert(key, bucket);
+                        println!("({} {name}: {}%)", if upload { "↑" } else { "↓" }, done * 100 / total);
+                    }
+                }
                 Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(_) => break,
             },
@@ -336,7 +428,7 @@ async fn chat(cfg: Config, contacts: &[String]) -> Result<()> {
                 if line == "/sair" { break; }
                 if line.is_empty() { continue; }
                 if line.starts_with('/') {
-                    chat_command(&node, line).await;
+                    chat_command(&node, &contacts[0], line).await;
                     continue;
                 }
                 // `@nome` sem texto é um engano: não manda "@nome" como mensagem.
@@ -365,11 +457,60 @@ async fn chat(cfg: Config, contacts: &[String]) -> Result<()> {
 }
 
 /// Comandos do chat: `/papel`, `/jogo on|off`, `/contribuir on|off`, `/contribuicao`.
-async fn chat_command(node: &Enxame, line: &str) {
+async fn chat_command(node: &Enxame, default_contact: &str, line: &str) {
     let mut parts = line.split_whitespace();
     let on = |a: Option<&str>| matches!(a, Some("on" | "sim" | "1"));
     match parts.next() {
         Some("/papel") => println!("(papel atual: {:?})", node.role()),
+        // /enviar <caminho> [contato ...]: manda um arquivo a um ou mais contatos (um só blob, o
+        // que dá fonte em comum para o download multi-fonte). O caminho não pode ter espaços.
+        Some("/enviar") => match parts.next() {
+            Some(path) => {
+                let mut to: Vec<&str> = parts.collect();
+                if to.is_empty() {
+                    to.push(default_contact);
+                }
+                match node.send_file_to(&to, std::path::Path::new(path)).await {
+                    Ok(s) => println!(
+                        "(→ {}: {} anunciado; fique online para eles baixarem)",
+                        to.join(", "),
+                        s.name
+                    ),
+                    Err(e) => println!("erro: {e}"),
+                }
+            }
+            None => println!("(uso: /enviar <caminho> [contato ...])"),
+        },
+        Some("/arquivos") => {
+            let who = parts.next().unwrap_or(default_contact);
+            match node.files(who).await {
+                Ok(list) if list.is_empty() => println!("(nenhum arquivo com {who})"),
+                Ok(list) => {
+                    for f in list {
+                        println!(
+                            "  {}  {}  {} ({})",
+                            f.index,
+                            if f.available { "✓" } else { "↓" },
+                            f.name,
+                            enxame_core::human_size(f.size)
+                        );
+                    }
+                }
+                Err(e) => println!("erro: {e}"),
+            }
+        }
+        // /baixar <n> [contato]: baixa o arquivo n da conversa.
+        Some("/baixar") => match parts.next() {
+            Some(n) => {
+                let who = parts.next().unwrap_or(default_contact).to_owned();
+                println!("(baixando {n} de {who}...)");
+                match node.download_file(&who, n, None).await {
+                    Ok(d) => println!("(salvo em {})", d.path.display()),
+                    Err(e) => println!("erro: {e}"),
+                }
+            }
+            None => println!("(uso: /baixar <n> [contato])"),
+        },
         Some("/jogo") => {
             node.set_game_mode(on(parts.next())).await;
             println!("(modo jogo; papel atual: {:?})", node.role());
@@ -385,8 +526,42 @@ async fn chat_command(node: &Enxame, line: &str) {
             ),
             Err(e) => println!("erro: {e}"),
         },
-        _ => println!("(comandos: /papel, /jogo on|off, /contribuir on|off, /contribuicao, /sair)"),
+        _ => println!(
+            "(comandos: /enviar <caminho> [contatos], /arquivos, /baixar <n>, /papel, /jogo on|off, /contribuir on|off, /contribuicao, /sair)"
+        ),
     }
+}
+
+/// Imprime o progresso de transferências (a cada ~10 %) enquanto o comando roda.
+fn progress_printer(node: &Enxame) -> tokio::task::JoinHandle<()> {
+    let mut events = node.subscribe();
+    tokio::spawn(async move {
+        let mut last_bucket = u64::MAX;
+        loop {
+            match events.recv().await {
+                Ok(Event::TransferProgress {
+                    name,
+                    done,
+                    total,
+                    upload,
+                    ..
+                }) if total > 0 => {
+                    let pct = done * 100 / total;
+                    if pct / 10 != last_bucket || done == total {
+                        last_bucket = pct / 10;
+                        eprintln!(
+                            "{} {name}: {pct}% ({} de {})",
+                            if upload { "↑" } else { "↓" },
+                            enxame_core::human_size(done),
+                            enxame_core::human_size(total)
+                        );
+                    }
+                }
+                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(_) => break,
+            }
+        }
+    })
 }
 
 fn node_ttl_hours(cfg: &Config) -> u64 {

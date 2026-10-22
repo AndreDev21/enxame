@@ -261,6 +261,8 @@ pub fn effective_kbps_cap(budget: &Budget, upload_est: Option<u64>) -> Option<u6
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CarryLimits {
     pub accepts: bool,
+    /// Aceita carregar envelopes `FileRef` (e replicar o blob): `Relay` e `SuperPeer`.
+    pub accepts_files: bool,
     pub per_contact_bytes: u64,
     pub total_bytes: u64,
     pub ttl: Duration,
@@ -281,6 +283,7 @@ impl CarryLimits {
         };
         Self {
             accepts,
+            accepts_files: matches!(role, Role::Relay | Role::SuperPeer),
             per_contact_bytes: budget.carry_quota_mb_per_contact.unwrap_or(per) * MB,
             total_bytes: budget.carry_quota_mb_total.unwrap_or(total) * MB,
             ttl: DAY * ttl_days,

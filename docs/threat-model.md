@@ -1,4 +1,4 @@
-# Modelo de ameaças (rascunho — Fases 1 a 3)
+# Modelo de ameaças (rascunho — Fases 1 a 4)
 
 Detalha a tabela da seção 12 da spec. Cobre só o que existe até a Fase 1 (identidade, contatos,
 conectividade); mensagens, carry e arquivos entram nas fases seguintes.
@@ -32,3 +32,10 @@ conectividade); mensagens, carry e arquivos entram nas fases seguintes.
 | Bug ou nó mal-intencionado derruba a rede | Papel é decisão local, sem estado global; promoções lentas; protocolos versionados | — |
 | Nó headless aceitando qualquer um | `allowed_fingerprints`; sem lista, recusa tudo | `auto_accept_contacts` abre o nó a quem tiver o ticket (uso controlado) |
 | Relay do nó / contêiner comprometido | Volume `/data` guarda a identidade do nó; usuário sem privilégios no contêiner | Quem lê o volume assume a identidade do nó (faça backup e proteja) |
+| Conteúdo de arquivo exposto a quem o hospeda ou carrega | Cifrado em streaming com chave aleatória por arquivo; a chave só viaja dentro do envelope E2E | Providers e carriers veem o hash, o tamanho do ciphertext e quem pede |
+| Estranho baixa um blob | Só contatos mútuos conectam ao provedor; `get_many` e `push` desligados; a raiz de 32 bytes é uma capacidade | Um contato que conhece a raiz (recebeu o `FileRef`) pode baixá-la de qualquer outro contato que a tenha |
+| Arquivo adulterado ou truncado no caminho | BLAKE3 por segmento e pela raiz (`iroh-blobs`) + autenticação por bloco com bit "último" e contador | — |
+| Nome de arquivo malicioso (`../../x`) | Nome só para exibição; ao gravar é saneado e o arquivo nunca sai da pasta de destino nem sobrescreve | — |
+| Arquivo gigante para encher o disco | `max_file_mb` na recepção e no envio; carrier recusa acima de `prefetch_max_mb` e da quota; download cortado se passa do tamanho declarado | O destinatário escolhe baixar; o espaço do próprio blob replicado conta na quota |
+| Contato usa o nó como CDN | Papel e budget (GB/mês e kbps) valem para o que não é do próprio dono; limite de banda por pedaço | Arquivos que eu mesmo enviei não contam no budget (mas passam pelo limite de banda) |
+| Sondagem revela o interesse num arquivo | Só contatos mútuos recebem a sondagem | Cada contato online vê que você buscou aquele hash |

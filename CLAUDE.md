@@ -77,10 +77,26 @@ cargo run -p enxame-cli -- --help
 - Testes: `cargo test -p enxame-core --test carry` (cenário A, B, C, nó headless como C, quotas,
   histerese com relógio simulado, budget, política de contatos).
 
+## Fase 4 (arquivos)
+
+- Módulos: `filecrypt` (STREAM sobre XChaCha20-Poly1305), `files` (`FileRef`, nomes seguros),
+  `blobs` (segmentos de 8 MiB + `HashSeq`, importar/baixar/exportar, `RoundRobin`) e `node/files.rs`
+  (serviço de blobs, política de servir, envio, download, pré-replicação). Decisões no ADR 0007.
+- CLI: `send-file <caminho> <contatos...>`, `files <contato>`, `get <contato> <n|id> [--out]`; no
+  `chat`: `/enviar`, `/arquivos`, `/baixar`.
+- API: `send_file`/`send_file_to`, `files`, `download_file`, `prefetched_blobs`, `file_bytes_sent`.
+  Para semear o que baixou, o nó precisa de papel `>= LeafPlus` (em testes: `role = "peer"`).
+- Config: `max_file_mb`, `prefetch_max_mb`, `download_dir`, `blob_gc_interval_secs`.
+- O `iroh-blobs` 0.103.1 é pré-produção: mantenha o uso isolado e a versão fixada.
+- Testes: `cargo test -p enxame-core --test files` (arquivos entre nós Enxame) e os testes de
+  `blobs` (3 nós iroh). O teste de 1 GB é `#[ignore]`: `cargo test -p enxame-core --test files
+  -- --ignored`.
+
 ## Estado
 
-- Fases 0, 1, 2 e 3 implementadas; a 3 foi validada em campo com três máquinas (`docs/reports/fase3-carry.md`);
+- Fases 0 a 4 implementadas; a 3 foi validada em campo com três máquinas (`docs/reports/fase3-carry.md`);
   aguarda revisão. Fases 0–2 revisadas. A Fase 1 foi validada em campo (Linux ↔ Linux,
   redes diferentes); Windows e 4G seguem sem teste. A Fase 2 foi validada em campo com duas
-  máquinas remotas (`docs/reports/fase2-mensagens.md`); falta Windows e 4G. Próxima: Fase 4 (arquivos).
+  máquinas remotas (`docs/reports/fase2-mensagens.md`); falta Windows e 4G. Próxima: Fase 5 (grupos). A Fase 4 passou nos testes locais (inclui 1 GiB em 2 fontes) e
+  aguarda o teste em campo (`docs/roteiros/fase4-arquivos-tres-maquinas.md`).
 - Nome do projeto e `repository` no `Cargo.toml` são provisórios.

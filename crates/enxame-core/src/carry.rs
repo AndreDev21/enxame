@@ -21,7 +21,7 @@ use crate::{
     crypto::{dm_conversation_id, Envelope, EnvelopeKind, Recipient, MAX_PARENTS},
     hlc::Hlc,
     identity::{unix_now_ms, Identity},
-    proto::{read_frame, write_frame, CarryMsg, RejectReason},
+    proto::{read_frame, write_frame, BlobOffer, CarryMsg, RejectReason},
     roles::{CarryLimits, RateLimiter, ThroughputEstimator},
     store::{self, Store},
     sync::{ingest_carried, Ingest, MAX_FUTURE_MS},
@@ -32,6 +32,8 @@ use crate::{
 const RECEIPTS_PER_SESSION: usize = 256;
 /// Recibos valem por tanto tempo quanto o maior TTL de carry.
 pub const RECEIPT_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+/// Máximo de blobs numa oferta.
+const MAX_BLOB_OFFERS: usize = 64;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Carriers por mensagem (spec 9.2).
 pub const CARRIERS_PER_MESSAGE: usize = 3;
@@ -88,6 +90,15 @@ fn receipt_author_ok(env: &Envelope, contacts: &[Contact], me: &[u8; 32]) -> boo
             .any(|c| c.is_mutual() && c.identity_pk == env.author)
 }
 
+/// O que quero que o par carregue para um destinatário.
+#[derive(Debug, Clone)]
+pub struct OfferSet {
+    pub to: Contact,
+    pub envelopes: Vec<Envelope>,
+    /// Arquivos referenciados pelos `FileRef` dentre os envelopes.
+    pub blobs: Vec<BlobOffer>,
+}
+
 /// Parâmetros de uma sessão de carry.
 pub struct CarrySession<'a> {
     pub store: &'a Store,
@@ -103,8 +114,12 @@ pub struct CarrySession<'a> {
     pub tick: &'a (dyn Fn() -> Hlc + Send + Sync),
     /// Chamado para cada mensagem nova entregue a mim (para eventos/relógio).
     pub on_received: &'a (dyn Fn(&Contact, &Envelope) + Send + Sync),
-    /// O que quero que o par carregue: `(destinatário, envelopes)`.
-    pub offers: Vec<(Contact, Vec<Envelope>)>,
+    /// Maior arquivo que aceitamos receber (`FileRef`).
+    pub max_file_bytes: u64,
+    /// Chamado quando aceito uma oferta com blobs: `(quem ofereceu, blobs)`.
+    pub on_blob_offer: &'a (dyn Fn(&Contact, Vec<BlobOffer>) + Send + Sync),
+    /// O que quero que o par carregue.
+    pub offers: Vec<OfferSet>,
 }
 
 fn month_of(ms: u64) -> u32 {
@@ -187,17 +202,18 @@ impl CarrySession<'_> {
 
         // 3. Ofertas.
         let mut offered: Vec<([u8; 32], Vec<[u8; 32]>)> = Vec::new();
-        for (to, envs) in &self.offers {
-            let envs = fit(envs.clone(), budget)?;
+        for o in &self.offers {
+            let envs = fit(o.envelopes.clone(), budget)?;
             if envs.is_empty() {
                 continue;
             }
-            offered.push((to.identity_pk, envs.iter().map(|e| e.id).collect()));
+            offered.push((o.to.identity_pk, envs.iter().map(|e| e.id).collect()));
             self.send(
                 w,
                 &CarryMsg::Offer {
-                    for_recipient: to.identity_pk,
+                    for_recipient: o.to.identity_pk,
                     envelopes: envs,
+                    blobs: o.blobs.iter().take(MAX_BLOB_OFFERS).cloned().collect(),
                 },
             )
             .await?;
@@ -245,10 +261,19 @@ impl CarrySession<'_> {
                 CarryMsg::Offer {
                     for_recipient,
                     envelopes,
+                    blobs,
                 } => {
                     let reply = self
                         .consider_offer(for_recipient, envelopes, &mut stats)
                         .await?;
+                    // Aceitei guardar alguma coisa: se o meu papel replica arquivos, busco os blobs.
+                    if matches!(&reply, CarryMsg::Accept { ids } if !ids.is_empty())
+                        && self.limits.accepts_files
+                        && !blobs.is_empty()
+                    {
+                        let blobs = blobs.into_iter().take(MAX_BLOB_OFFERS).collect();
+                        (self.on_blob_offer)(self.peer, blobs);
+                    }
                     self.send(w, &reply).await?;
                 }
                 CarryMsg::Accept { ids } => {
@@ -311,7 +336,15 @@ impl CarrySession<'_> {
         let mut by_author: BTreeMap<[u8; 32], Vec<[u8; 32]>> = BTreeMap::new();
         for env in envelopes {
             let copy = env.clone();
-            match ingest_carried(self.store, self.identity, self.contacts, env).await {
+            match ingest_carried(
+                self.store,
+                self.identity,
+                self.contacts,
+                self.max_file_bytes,
+                env,
+            )
+            .await
+            {
                 Ok((outcome, author)) => {
                     by_author.entry(author).or_default().push(copy.id);
                     if outcome == Ingest::Stored {
@@ -378,7 +411,8 @@ impl CarrySession<'_> {
         for env in envelopes.into_iter().take(MAX_PARENTS * 4) {
             let valid = env.verify().is_ok()
                 && env.author == peer_pk
-                && env.kind == EnvelopeKind::Text
+                && (env.kind == EnvelopeKind::Text
+                    || (env.kind == EnvelopeKind::FileRef && self.limits.accepts_files))
                 && env.recipients.iter().any(|r| r.recipient == for_recipient)
                 && env.hlc.ms <= now.saturating_add(MAX_FUTURE_MS);
             if !valid {
@@ -606,9 +640,15 @@ mod tests {
             throughput: &est,
             tick: &tick,
             on_received: &nop,
+            max_file_bytes: 1 << 30,
+            on_blob_offer: &|_, _| {},
             offers: a_offers
                 .into_iter()
-                .map(|(n, e)| (n.as_contact(), e))
+                .map(|(n, e)| OfferSet {
+                    to: n.as_contact(),
+                    envelopes: e,
+                    blobs: vec![],
+                })
                 .collect(),
         };
         let sb = CarrySession {
@@ -622,6 +662,8 @@ mod tests {
             throughput: &est,
             tick: &tick,
             on_received: &nop,
+            max_file_bytes: 1 << 30,
+            on_blob_offer: &|_, _| {},
             offers: vec![],
         };
         let (x, y) = tokio::join!(sa.run(&mut ra, &mut wa), sb.run(&mut rb, &mut wb));
@@ -736,6 +778,115 @@ mod tests {
         .await;
         assert_eq!(sa.accepted.len(), 1);
         assert_eq!(c.carried().await, 1);
+    }
+
+    fn fileref_env(from: &Node, to: &Node, blob: u8) -> Envelope {
+        let fr = crate::FileRef {
+            blob_hash: [blob; 32],
+            size: 1000,
+            name: "foto.png".into(),
+            mime: "image/png".into(),
+            file_key: [3; 32],
+        };
+        let c = to.as_contact();
+        Envelope::create(
+            &from.id,
+            dm_conversation_id(&from.pk(), &to.pk()),
+            Hlc::new(5, 0),
+            vec![],
+            &[Recipient {
+                identity_pk: c.identity_pk,
+                enc_pk: c.enc_pk,
+            }],
+            EnvelopeKind::FileRef,
+            &fr.encode().unwrap(),
+        )
+        .unwrap()
+    }
+
+    /// Roda uma oferta `A → C` (para `B`) e devolve o que `C` recebeu como pedido de blobs.
+    async fn offer_file(c_role: Role) -> (CarryStats, Vec<BlobOffer>, u64) {
+        let (a, b, c) = (Node::new("a"), Node::new("b"), Node::new("c"));
+        let env = fileref_env(&a, &b, 9);
+        let (ea, eb) = tokio::io::duplex(1 << 20);
+        let (mut ra, mut wa) = tokio::io::split(ea);
+        let (mut rb, mut wb) = tokio::io::split(eb);
+        let (ac, cc) = (
+            vec![b.as_contact(), c.as_contact()],
+            vec![a.as_contact(), b.as_contact()],
+        );
+        let (c_peer, a_peer) = (c.as_contact(), a.as_contact());
+        let budget = Budget::default();
+        let (limiter, est) = (RateLimiter::new(None), ThroughputEstimator::default());
+        let tick = || Hlc::new(unix_now_ms(), 0);
+        let nop = |_: &Contact, _: &Envelope| {};
+        let asked = std::sync::Mutex::new(Vec::new());
+        let on_blob = |_: &Contact, blobs: Vec<BlobOffer>| asked.lock().unwrap().extend(blobs);
+        let sa = CarrySession {
+            store: &a.store,
+            identity: &a.id,
+            peer: &c_peer,
+            contacts: &ac,
+            limits: CarryLimits::for_role(Role::Peer, &budget),
+            max_frame: 1 << 20,
+            limiter: &limiter,
+            throughput: &est,
+            tick: &tick,
+            on_received: &nop,
+            max_file_bytes: 1 << 30,
+            on_blob_offer: &|_, _| {},
+            offers: vec![OfferSet {
+                to: b.as_contact(),
+                envelopes: vec![env],
+                blobs: vec![BlobOffer {
+                    hash: [9; 32],
+                    enc_size: 1100,
+                }],
+            }],
+        };
+        let sc = CarrySession {
+            store: &c.store,
+            identity: &c.id,
+            peer: &a_peer,
+            contacts: &cc,
+            limits: CarryLimits::for_role(c_role, &budget),
+            max_frame: 1 << 20,
+            limiter: &limiter,
+            throughput: &est,
+            tick: &tick,
+            on_received: &nop,
+            max_file_bytes: 1 << 30,
+            on_blob_offer: &on_blob,
+            offers: vec![],
+        };
+        let (x, _) = tokio::join!(sa.run(&mut ra, &mut wa), sc.run(&mut rb, &mut wb));
+        let held = c.carried().await;
+        let asked = asked.into_inner().unwrap();
+        (x.unwrap(), asked, held)
+    }
+
+    #[tokio::test]
+    async fn file_messages_are_only_carried_by_relay_and_super_peer_and_trigger_a_blob_fetch() {
+        // Peer e LeafPlus recusam envelopes FileRef (só texto); não pedem o blob.
+        for weak in [Role::LeafPlus, Role::Peer] {
+            let (stats, asked, held) = offer_file(weak).await;
+            assert_eq!(stats.rejected, vec![RejectReason::Invalid], "{weak:?}");
+            assert!(asked.is_empty() && held == 0, "{weak:?}");
+        }
+        // Relay e SuperPeer aceitam e pedem a replicação do blob oferecido.
+        for strong in [Role::Relay, Role::SuperPeer] {
+            let (stats, asked, held) = offer_file(strong).await;
+            assert_eq!(stats.accepted.len(), 1, "{strong:?}");
+            assert_eq!(held, 1, "{strong:?}");
+            assert_eq!(
+                asked,
+                vec![BlobOffer {
+                    hash: [9; 32],
+                    enc_size: 1100
+                }],
+                "{strong:?}"
+            );
+        }
     }
 
     #[tokio::test]

@@ -3,11 +3,11 @@
 Comunicador estilo Discord **sem servidor central obrigatório**, em Rust. Cada pessoa instala o app
 e ele se conecta direto aos contatos (P2P, com *hole punching* e relay mínimo e self-hostável como
 fallback). Enquanto está em uso, o dispositivo **contribui com a rede dos seus contatos**:
-guarda mensagens offline cifradas, entrega-as quando o destinatário volta e (a partir da Fase 4)
-semeia arquivos. Quanto mais contatos ativos, melhor a entrega offline.
+guarda mensagens offline cifradas, entrega-as quando o destinatário volta e semeia arquivos para
+que quem baixa possa buscar de vários contatos ao mesmo tempo. Quanto mais contatos ativos, melhor a entrega offline.
 
-> **Status: MVP em desenvolvimento** (fases 0 a 3 prontas: identidade, mensagens 1:1, papéis,
-> carry e nó headless). Sem forward secrecy, sem auditoria externa: veja
+> **Status: MVP em desenvolvimento** (fases 0 a 4 prontas: identidade, mensagens 1:1, papéis,
+> carry, nó headless e arquivos). Sem forward secrecy, sem auditoria externa: veja
 > [`SECURITY.md`](SECURITY.md) e [`docs/threat-model.md`](docs/threat-model.md). O nome é
 > provisório. A especificação completa está em [`enxame-mvp.md`](enxame-mvp.md).
 
@@ -37,7 +37,7 @@ semeia arquivos. Quanto mais contatos ativos, melhor a entrega offline.
 
 | Crate | Papel |
 |---|---|
-| `enxame-core` | Toda a lógica. API: struct `Enxame` + stream de `Event`. |
+| `enxame-core` | Toda a lógica (identidade, sync, carry, papéis, arquivos). API: struct `Enxame` + stream de `Event`. |
 | `enxame-cli` | Binário de desenvolvimento e teste. |
 | `enxame-node` | Daemon headless, papel fixo `SuperPeer` (Docker em [`deploy/`](deploy/README.md)). |
 | `enxame-ffi` | Fronteira para o Flutter (Fase 6). |
@@ -57,6 +57,9 @@ cp target/release/enxame-cli .
 ./enxame-cli chat alice                  # conversa interativa (mostra o que chega)
 ./enxame-cli send alice "oi"             # uma mensagem avulsa
 ./enxame-cli history alice               # histórico (✓ = entregue)
+./enxame-cli send-file ./foto.png alice bob   # arquivo cifrado; o mesmo blob serve os dois
+./enxame-cli files alice                 # arquivos da conversa (↓ = ainda não baixado)
+./enxame-cli get alice 1                 # baixa de todos os contatos que tiverem o arquivo
 ./enxame-cli diag alice                  # NAT, caminho direto/relay, RTT, papel
 ```
 

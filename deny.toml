@@ -4,6 +4,12 @@ ignore = [
     # `paste` sem manutenção (aviso, não vulnerabilidade). Dependência transitiva do iroh/noq;
     # reavaliar a cada atualização do iroh.
     "RUSTSEC-2024-0436",
+    # `proc-macro-error` sem manutenção (aviso, não vulnerabilidade): macro de compilação puxada
+    # por iroh-blobs → bao-tree → genawaiter. Não roda em produção; reavaliar ao atualizar o iroh-blobs.
+    "RUSTSEC-2024-0370",
+    # `atomic-polyfill` sem manutenção (aviso): só entra para alvos sem atômicos nativos (Cargo.lock
+    # lista todas as plataformas); não é compilado nos alvos suportados (Linux, Windows, Android).
+    "RUSTSEC-2023-0089",
 ]
 
 [licenses]
