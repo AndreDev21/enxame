@@ -56,7 +56,7 @@ extension AppEventPatterns on AppEvent {
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( AppEvent_MessageReceived value)?  messageReceived,TResult Function( AppEvent_ContactRequested value)?  contactRequested,TResult Function( AppEvent_ContactAdded value)?  contactAdded,TResult Function( AppEvent_RoleChanged value)?  roleChanged,TResult Function( AppEvent_Transfer value)?  transfer,TResult Function( AppEvent_GroupJoined value)?  groupJoined,TResult Function( AppEvent_GroupUpdated value)?  groupUpdated,TResult Function( AppEvent_GroupRemoved value)?  groupRemoved,TResult Function( AppEvent_Lagged value)?  lagged,required TResult orElse(),}){
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>({TResult Function( AppEvent_MessageReceived value)?  messageReceived,TResult Function( AppEvent_ContactRequested value)?  contactRequested,TResult Function( AppEvent_ContactAdded value)?  contactAdded,TResult Function( AppEvent_RoleChanged value)?  roleChanged,TResult Function( AppEvent_Transfer value)?  transfer,TResult Function( AppEvent_GroupJoined value)?  groupJoined,TResult Function( AppEvent_GroupUpdated value)?  groupUpdated,TResult Function( AppEvent_GroupRemoved value)?  groupRemoved,TResult Function( AppEvent_CallSignal value)?  callSignal,TResult Function( AppEvent_Lagged value)?  lagged,required TResult orElse(),}){
 final _that = this;
 switch (_that) {
 case AppEvent_MessageReceived() when messageReceived != null:
@@ -67,7 +67,8 @@ return roleChanged(_that);case AppEvent_Transfer() when transfer != null:
 return transfer(_that);case AppEvent_GroupJoined() when groupJoined != null:
 return groupJoined(_that);case AppEvent_GroupUpdated() when groupUpdated != null:
 return groupUpdated(_that);case AppEvent_GroupRemoved() when groupRemoved != null:
-return groupRemoved(_that);case AppEvent_Lagged() when lagged != null:
+return groupRemoved(_that);case AppEvent_CallSignal() when callSignal != null:
+return callSignal(_that);case AppEvent_Lagged() when lagged != null:
 return lagged(_that);case _:
   return orElse();
 
@@ -86,7 +87,7 @@ return lagged(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( AppEvent_MessageReceived value)  messageReceived,required TResult Function( AppEvent_ContactRequested value)  contactRequested,required TResult Function( AppEvent_ContactAdded value)  contactAdded,required TResult Function( AppEvent_RoleChanged value)  roleChanged,required TResult Function( AppEvent_Transfer value)  transfer,required TResult Function( AppEvent_GroupJoined value)  groupJoined,required TResult Function( AppEvent_GroupUpdated value)  groupUpdated,required TResult Function( AppEvent_GroupRemoved value)  groupRemoved,required TResult Function( AppEvent_Lagged value)  lagged,}){
+@optionalTypeArgs TResult map<TResult extends Object?>({required TResult Function( AppEvent_MessageReceived value)  messageReceived,required TResult Function( AppEvent_ContactRequested value)  contactRequested,required TResult Function( AppEvent_ContactAdded value)  contactAdded,required TResult Function( AppEvent_RoleChanged value)  roleChanged,required TResult Function( AppEvent_Transfer value)  transfer,required TResult Function( AppEvent_GroupJoined value)  groupJoined,required TResult Function( AppEvent_GroupUpdated value)  groupUpdated,required TResult Function( AppEvent_GroupRemoved value)  groupRemoved,required TResult Function( AppEvent_CallSignal value)  callSignal,required TResult Function( AppEvent_Lagged value)  lagged,}){
 final _that = this;
 switch (_that) {
 case AppEvent_MessageReceived():
@@ -97,7 +98,8 @@ return roleChanged(_that);case AppEvent_Transfer():
 return transfer(_that);case AppEvent_GroupJoined():
 return groupJoined(_that);case AppEvent_GroupUpdated():
 return groupUpdated(_that);case AppEvent_GroupRemoved():
-return groupRemoved(_that);case AppEvent_Lagged():
+return groupRemoved(_that);case AppEvent_CallSignal():
+return callSignal(_that);case AppEvent_Lagged():
 return lagged(_that);}
 }
 /// A variant of `map` that fallback to returning `null`.
@@ -112,7 +114,7 @@ return lagged(_that);}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( AppEvent_MessageReceived value)?  messageReceived,TResult? Function( AppEvent_ContactRequested value)?  contactRequested,TResult? Function( AppEvent_ContactAdded value)?  contactAdded,TResult? Function( AppEvent_RoleChanged value)?  roleChanged,TResult? Function( AppEvent_Transfer value)?  transfer,TResult? Function( AppEvent_GroupJoined value)?  groupJoined,TResult? Function( AppEvent_GroupUpdated value)?  groupUpdated,TResult? Function( AppEvent_GroupRemoved value)?  groupRemoved,TResult? Function( AppEvent_Lagged value)?  lagged,}){
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>({TResult? Function( AppEvent_MessageReceived value)?  messageReceived,TResult? Function( AppEvent_ContactRequested value)?  contactRequested,TResult? Function( AppEvent_ContactAdded value)?  contactAdded,TResult? Function( AppEvent_RoleChanged value)?  roleChanged,TResult? Function( AppEvent_Transfer value)?  transfer,TResult? Function( AppEvent_GroupJoined value)?  groupJoined,TResult? Function( AppEvent_GroupUpdated value)?  groupUpdated,TResult? Function( AppEvent_GroupRemoved value)?  groupRemoved,TResult? Function( AppEvent_CallSignal value)?  callSignal,TResult? Function( AppEvent_Lagged value)?  lagged,}){
 final _that = this;
 switch (_that) {
 case AppEvent_MessageReceived() when messageReceived != null:
@@ -123,7 +125,8 @@ return roleChanged(_that);case AppEvent_Transfer() when transfer != null:
 return transfer(_that);case AppEvent_GroupJoined() when groupJoined != null:
 return groupJoined(_that);case AppEvent_GroupUpdated() when groupUpdated != null:
 return groupUpdated(_that);case AppEvent_GroupRemoved() when groupRemoved != null:
-return groupRemoved(_that);case AppEvent_Lagged() when lagged != null:
+return groupRemoved(_that);case AppEvent_CallSignal() when callSignal != null:
+return callSignal(_that);case AppEvent_Lagged() when lagged != null:
 return lagged(_that);case _:
   return null;
 
@@ -141,7 +144,7 @@ return lagged(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String conversationId,  String fromName,  String fromFingerprint)?  messageReceived,TResult Function( BigInt requestId,  String name,  String fingerprint)?  contactRequested,TResult Function( String name,  String fingerprint)?  contactAdded,TResult Function( String from,  String to)?  roleChanged,TResult Function( String name,  BigInt done,  BigInt total,  bool upload)?  transfer,TResult Function( String groupId,  String name,  String creator,  List<String> exposed)?  groupJoined,TResult Function( String groupId,  String name)?  groupUpdated,TResult Function( String groupId,  String name)?  groupRemoved,TResult Function()?  lagged,required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>({TResult Function( String conversationId,  String fromName,  String fromFingerprint)?  messageReceived,TResult Function( BigInt requestId,  String name,  String fingerprint)?  contactRequested,TResult Function( String name,  String fingerprint)?  contactAdded,TResult Function( String from,  String to)?  roleChanged,TResult Function( String name,  BigInt done,  BigInt total,  bool upload)?  transfer,TResult Function( String groupId,  String name,  String creator,  List<String> exposed)?  groupJoined,TResult Function( String groupId,  String name)?  groupUpdated,TResult Function( String groupId,  String name)?  groupRemoved,TResult Function( String fromFingerprint,  String fromName,  String payload)?  callSignal,TResult Function()?  lagged,required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case AppEvent_MessageReceived() when messageReceived != null:
 return messageReceived(_that.conversationId,_that.fromName,_that.fromFingerprint);case AppEvent_ContactRequested() when contactRequested != null:
@@ -151,7 +154,8 @@ return roleChanged(_that.from,_that.to);case AppEvent_Transfer() when transfer !
 return transfer(_that.name,_that.done,_that.total,_that.upload);case AppEvent_GroupJoined() when groupJoined != null:
 return groupJoined(_that.groupId,_that.name,_that.creator,_that.exposed);case AppEvent_GroupUpdated() when groupUpdated != null:
 return groupUpdated(_that.groupId,_that.name);case AppEvent_GroupRemoved() when groupRemoved != null:
-return groupRemoved(_that.groupId,_that.name);case AppEvent_Lagged() when lagged != null:
+return groupRemoved(_that.groupId,_that.name);case AppEvent_CallSignal() when callSignal != null:
+return callSignal(_that.fromFingerprint,_that.fromName,_that.payload);case AppEvent_Lagged() when lagged != null:
 return lagged();case _:
   return orElse();
 
@@ -170,7 +174,7 @@ return lagged();case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String conversationId,  String fromName,  String fromFingerprint)  messageReceived,required TResult Function( BigInt requestId,  String name,  String fingerprint)  contactRequested,required TResult Function( String name,  String fingerprint)  contactAdded,required TResult Function( String from,  String to)  roleChanged,required TResult Function( String name,  BigInt done,  BigInt total,  bool upload)  transfer,required TResult Function( String groupId,  String name,  String creator,  List<String> exposed)  groupJoined,required TResult Function( String groupId,  String name)  groupUpdated,required TResult Function( String groupId,  String name)  groupRemoved,required TResult Function()  lagged,}) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>({required TResult Function( String conversationId,  String fromName,  String fromFingerprint)  messageReceived,required TResult Function( BigInt requestId,  String name,  String fingerprint)  contactRequested,required TResult Function( String name,  String fingerprint)  contactAdded,required TResult Function( String from,  String to)  roleChanged,required TResult Function( String name,  BigInt done,  BigInt total,  bool upload)  transfer,required TResult Function( String groupId,  String name,  String creator,  List<String> exposed)  groupJoined,required TResult Function( String groupId,  String name)  groupUpdated,required TResult Function( String groupId,  String name)  groupRemoved,required TResult Function( String fromFingerprint,  String fromName,  String payload)  callSignal,required TResult Function()  lagged,}) {final _that = this;
 switch (_that) {
 case AppEvent_MessageReceived():
 return messageReceived(_that.conversationId,_that.fromName,_that.fromFingerprint);case AppEvent_ContactRequested():
@@ -180,7 +184,8 @@ return roleChanged(_that.from,_that.to);case AppEvent_Transfer():
 return transfer(_that.name,_that.done,_that.total,_that.upload);case AppEvent_GroupJoined():
 return groupJoined(_that.groupId,_that.name,_that.creator,_that.exposed);case AppEvent_GroupUpdated():
 return groupUpdated(_that.groupId,_that.name);case AppEvent_GroupRemoved():
-return groupRemoved(_that.groupId,_that.name);case AppEvent_Lagged():
+return groupRemoved(_that.groupId,_that.name);case AppEvent_CallSignal():
+return callSignal(_that.fromFingerprint,_that.fromName,_that.payload);case AppEvent_Lagged():
 return lagged();}
 }
 /// A variant of `when` that fallback to returning `null`
@@ -195,7 +200,7 @@ return lagged();}
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String conversationId,  String fromName,  String fromFingerprint)?  messageReceived,TResult? Function( BigInt requestId,  String name,  String fingerprint)?  contactRequested,TResult? Function( String name,  String fingerprint)?  contactAdded,TResult? Function( String from,  String to)?  roleChanged,TResult? Function( String name,  BigInt done,  BigInt total,  bool upload)?  transfer,TResult? Function( String groupId,  String name,  String creator,  List<String> exposed)?  groupJoined,TResult? Function( String groupId,  String name)?  groupUpdated,TResult? Function( String groupId,  String name)?  groupRemoved,TResult? Function()?  lagged,}) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>({TResult? Function( String conversationId,  String fromName,  String fromFingerprint)?  messageReceived,TResult? Function( BigInt requestId,  String name,  String fingerprint)?  contactRequested,TResult? Function( String name,  String fingerprint)?  contactAdded,TResult? Function( String from,  String to)?  roleChanged,TResult? Function( String name,  BigInt done,  BigInt total,  bool upload)?  transfer,TResult? Function( String groupId,  String name,  String creator,  List<String> exposed)?  groupJoined,TResult? Function( String groupId,  String name)?  groupUpdated,TResult? Function( String groupId,  String name)?  groupRemoved,TResult? Function( String fromFingerprint,  String fromName,  String payload)?  callSignal,TResult? Function()?  lagged,}) {final _that = this;
 switch (_that) {
 case AppEvent_MessageReceived() when messageReceived != null:
 return messageReceived(_that.conversationId,_that.fromName,_that.fromFingerprint);case AppEvent_ContactRequested() when contactRequested != null:
@@ -205,7 +210,8 @@ return roleChanged(_that.from,_that.to);case AppEvent_Transfer() when transfer !
 return transfer(_that.name,_that.done,_that.total,_that.upload);case AppEvent_GroupJoined() when groupJoined != null:
 return groupJoined(_that.groupId,_that.name,_that.creator,_that.exposed);case AppEvent_GroupUpdated() when groupUpdated != null:
 return groupUpdated(_that.groupId,_that.name);case AppEvent_GroupRemoved() when groupRemoved != null:
-return groupRemoved(_that.groupId,_that.name);case AppEvent_Lagged() when lagged != null:
+return groupRemoved(_that.groupId,_that.name);case AppEvent_CallSignal() when callSignal != null:
+return callSignal(_that.fromFingerprint,_that.fromName,_that.payload);case AppEvent_Lagged() when lagged != null:
 return lagged();case _:
   return null;
 
@@ -785,6 +791,78 @@ class _$AppEvent_GroupRemovedCopyWithImpl<$Res>
   return _then(AppEvent_GroupRemoved(
 groupId: null == groupId ? _self.groupId : groupId // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
+
+
+class AppEvent_CallSignal extends AppEvent {
+  const AppEvent_CallSignal({required this.fromFingerprint, required this.fromName, required this.payload}): super._();
+  
+
+ final  String fromFingerprint;
+ final  String fromName;
+ final  String payload;
+
+/// Create a copy of AppEvent
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$AppEvent_CallSignalCopyWith<AppEvent_CallSignal> get copyWith => _$AppEvent_CallSignalCopyWithImpl<AppEvent_CallSignal>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is AppEvent_CallSignal&&(identical(other.fromFingerprint, fromFingerprint) || other.fromFingerprint == fromFingerprint)&&(identical(other.fromName, fromName) || other.fromName == fromName)&&(identical(other.payload, payload) || other.payload == payload));
+}
+
+
+@override
+int get hashCode {
+    return Object.hash(runtimeType,fromFingerprint,fromName,payload);
+}
+
+@override
+String toString() {
+    return 'AppEvent.callSignal(fromFingerprint: $fromFingerprint, fromName: $fromName, payload: $payload)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $AppEvent_CallSignalCopyWith<$Res> implements $AppEventCopyWith<$Res> {
+  factory $AppEvent_CallSignalCopyWith(AppEvent_CallSignal value, $Res Function(AppEvent_CallSignal) _then) = _$AppEvent_CallSignalCopyWithImpl;
+@useResult
+$Res call({
+ String fromFingerprint, String fromName, String payload
+});
+
+
+
+
+}
+/// @nodoc
+class _$AppEvent_CallSignalCopyWithImpl<$Res>
+    implements $AppEvent_CallSignalCopyWith<$Res> {
+  _$AppEvent_CallSignalCopyWithImpl(this._self, this._then);
+
+  final AppEvent_CallSignal _self;
+  final $Res Function(AppEvent_CallSignal) _then;
+
+/// Create a copy of AppEvent
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') $Res call({Object? fromFingerprint = null,Object? fromName = null,Object? payload = null,}) {
+  return _then(AppEvent_CallSignal(
+fromFingerprint: null == fromFingerprint ? _self.fromFingerprint : fromFingerprint // ignore: cast_nullable_to_non_nullable
+as String,fromName: null == fromName ? _self.fromName : fromName // ignore: cast_nullable_to_non_nullable
+as String,payload: null == payload ? _self.payload : payload // ignore: cast_nullable_to_non_nullable
 as String,
   ));
 }

@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 125278917;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1057090612;
 
 // Section: executor
 
@@ -878,6 +878,44 @@ fn wire__crate__api__app__save_settings_impl(
         },
     )
 }
+fn wire__crate__api__app__send_call_signal_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "send_call_signal",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_contact = <String>::sse_decode(&mut deserializer);
+            let api_payload = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, String>(
+                    (move || async move {
+                        let output_ok =
+                            crate::api::app::send_call_signal(api_contact, api_payload).await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__app__send_file_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1246,6 +1284,16 @@ impl SseDecode for crate::api::app::AppEvent {
                 };
             }
             8 => {
+                let mut var_fromFingerprint = <String>::sse_decode(deserializer);
+                let mut var_fromName = <String>::sse_decode(deserializer);
+                let mut var_payload = <String>::sse_decode(deserializer);
+                return crate::api::app::AppEvent::CallSignal {
+                    from_fingerprint: var_fromFingerprint,
+                    from_name: var_fromName,
+                    payload: var_payload,
+                };
+            }
+            9 => {
                 return crate::api::app::AppEvent::Lagged;
             }
             _ => {
@@ -1761,13 +1809,14 @@ fn pde_ffi_dispatcher_primary_impl(
         22 => wire__crate__api__app__respond_request_impl(port, ptr, rust_vec_len, data_len),
         23 => wire__crate__api__app__role_impl(port, ptr, rust_vec_len, data_len),
         24 => wire__crate__api__app__save_settings_impl(port, ptr, rust_vec_len, data_len),
-        25 => wire__crate__api__app__send_file_impl(port, ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__app__send_group_text_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__app__send_text_impl(port, ptr, rust_vec_len, data_len),
-        28 => wire__crate__api__app__set_contribution_impl(port, ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__app__set_game_mode_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__app__start_node_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__app__stop_node_impl(port, ptr, rust_vec_len, data_len),
+        25 => wire__crate__api__app__send_call_signal_impl(port, ptr, rust_vec_len, data_len),
+        26 => wire__crate__api__app__send_file_impl(port, ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__app__send_group_text_impl(port, ptr, rust_vec_len, data_len),
+        28 => wire__crate__api__app__send_text_impl(port, ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__app__set_contribution_impl(port, ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__app__set_game_mode_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__app__start_node_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__app__stop_node_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -1865,7 +1914,18 @@ impl flutter_rust_bridge::IntoDart for crate::api::app::AppEvent {
                 name.into_into_dart().into_dart(),
             ]
             .into_dart(),
-            crate::api::app::AppEvent::Lagged => [8.into_dart()].into_dart(),
+            crate::api::app::AppEvent::CallSignal {
+                from_fingerprint,
+                from_name,
+                payload,
+            } => [
+                8.into_dart(),
+                from_fingerprint.into_into_dart().into_dart(),
+                from_name.into_into_dart().into_dart(),
+                payload.into_into_dart().into_dart(),
+            ]
+            .into_dart(),
+            crate::api::app::AppEvent::Lagged => [9.into_dart()].into_dart(),
             _ => {
                 unimplemented!("");
             }
@@ -2283,8 +2343,18 @@ impl SseEncode for crate::api::app::AppEvent {
                 <String>::sse_encode(group_id, serializer);
                 <String>::sse_encode(name, serializer);
             }
-            crate::api::app::AppEvent::Lagged => {
+            crate::api::app::AppEvent::CallSignal {
+                from_fingerprint,
+                from_name,
+                payload,
+            } => {
                 <i32>::sse_encode(8, serializer);
+                <String>::sse_encode(from_fingerprint, serializer);
+                <String>::sse_encode(from_name, serializer);
+                <String>::sse_encode(payload, serializer);
+            }
+            crate::api::app::AppEvent::Lagged => {
+                <i32>::sse_encode(9, serializer);
             }
             _ => {
                 unimplemented!("");

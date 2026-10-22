@@ -213,5 +213,63 @@
         "type": "String"
       }
     }
+  },
+  "callAudio": "Voice call",
+  "callVideo": "Video call",
+  "callScreen": "Share my screen",
+  "callCalling": "Calling {name}…",
+  "callIncomingAudio": "{name} is calling you (voice)",
+  "callIncomingVideo": "{name} is calling you (video)",
+  "callIncomingScreen": "{name} wants to share their screen with you",
+  "callConnecting": "Connecting…",
+  "callHangup": "Hang up",
+  "callCancel": "Cancel",
+  "callMute": "Mute microphone",
+  "callUnmute": "Unmute microphone",
+  "callCameraOff": "Turn camera off",
+  "callCameraOn": "Turn camera on",
+  "callShareScreen": "Share screen",
+  "callStopShare": "Stop sharing",
+  "callSharing": "You are sharing your screen",
+  "callWaitingVideo": "Waiting for video…",
+  "callEnded": "Call ended: {reason}",
+  "pickScreenTitle": "What do you want to share?",
+  "pickScreenScreens": "Screens",
+  "pickScreenWindows": "Windows",
+  "pickScreenNone": "No screen found.",
+  "@callCalling": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@callIncomingAudio": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@callIncomingVideo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@callIncomingScreen": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@callEnded": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
   }
 }

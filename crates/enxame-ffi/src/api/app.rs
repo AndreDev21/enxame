@@ -193,6 +193,12 @@ pub enum AppEvent {
         group_id: String,
         name: String,
     },
+    /// Sinal de chamada (JSON do app) de um contato; chega em tempo real e não fica guardado.
+    CallSignal {
+        from_fingerprint: String,
+        from_name: String,
+        payload: String,
+    },
     /// O stream perdeu eventos: a interface deve recarregar o que mostra.
     Lagged,
 }
@@ -454,6 +460,16 @@ pub async fn send_group_text(group: String, text: String) -> Res<GroupSendResult
         offline: s.offline,
         carriers: s.carriers as u32,
     })
+}
+
+// --------------------------------------------------------------------------- chamadas
+
+/// Envia um sinal de chamada (JSON) a um contato mútuo, em tempo real (erro se estiver offline).
+pub async fn send_call_signal(contact: String, payload: String) -> Res<()> {
+    node()?
+        .send_call_signal(&contact, payload.as_bytes())
+        .await
+        .map_err(err)
 }
 
 // --------------------------------------------------------------------------- arquivos
@@ -735,6 +751,15 @@ pub async fn events(sink: StreamSink<AppEvent>) -> Res<()> {
                 done,
                 total,
                 upload,
+            }),
+            Event::CallSignal {
+                from_name,
+                from_fingerprint,
+                payload,
+            } => Some(AppEvent::CallSignal {
+                from_fingerprint,
+                from_name,
+                payload: String::from_utf8_lossy(&payload).into_owned(),
             }),
             Event::GroupJoined {
                 group_id,

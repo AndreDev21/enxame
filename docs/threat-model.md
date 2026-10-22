@@ -46,3 +46,8 @@ conectividade); mensagens, carry e arquivos entram nas fases seguintes.
 | Exposição de IP entre membros do grupo | `Event::GroupJoined` lista os membros que não são contatos; a CLI avisa | Quem entra num grupo passa a ser alcançável por todos os membros (spec 7.2) |
 | Membro novo lê o passado | Mensagens antigas foram seladas só para os membros de então; não há re-cifragem | — |
 | Flood de membros em carry | Mesmos limites de quota por ofertante, total por papel e TTL do carry 1:1 | Membro de grupo que não é contato pode ofertar carry só de mensagens de grupo |
+| Estranho ou co-membro toca o telefone do usuário | `enxame/call/1` só aceita contatos mútuos; o app pede aceitação antes de qualquer captura | Um contato mútuo pode ligar quando quiser (recuse ou bloqueie no app) |
+| Repetir um sinal de chamada capturado | Id inédito + janela de ±60 s + assinatura do autor | — |
+| Inundar o app com sinais de chamada | Limite de 200 sinais/contato a cada 10 s e carga ≤ 64 KiB | — |
+| Câmera, microfone ou tela capturados sem querer | Nada é aberto antes do aceite; a tela exige escolher a fonte; indicador "você está transmitindo" sempre visível, com botão de parar | Só o SO garante que outro app não capture também |
+| Mídia da chamada lida no caminho | WebRTC (DTLS-SRTP) entre os dois pontos; a sinalização é E2E | Os servidores STUN veem os IPs públicos; sem TURN a mídia é direta (expõe IPs entre os dois contatos, que já se conhecem) |

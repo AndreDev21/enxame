@@ -46,6 +46,7 @@ dependencies:
   window_manager: ^0.5.2
   launch_at_startup: ^0.5.1
   dbus: ^0.7.15
+  flutter_webrtc: ^1.6.2+hotfix.4
 
 dev_dependencies:
   flutter_test:

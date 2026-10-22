@@ -16,6 +16,8 @@ pub const ALPN_CONTACT: &[u8] = b"enxame/contact/1";
 pub const ALPN_SYNC: &[u8] = b"enxame/sync/1";
 /// ALPN do store-and-forward (spec 9). Apenas contatos mútuos.
 pub const ALPN_CARRY: &[u8] = b"enxame/carry/1";
+/// ALPN da sinalização de chamadas (spec 13/Fase 6, ADR 0012). Apenas contatos mútuos.
+pub const ALPN_CALL: &[u8] = b"enxame/call/1";
 /// Versões de protocolo que este build entende, da mais nova para a mais antiga.
 pub const SUPPORTED_VERSIONS: &[u8] = &[crate::PROTOCOL_VERSION];
 
@@ -126,6 +128,15 @@ pub enum CarryMsg {
         reason: RejectReason,
     },
     Bye,
+}
+
+/// Mensagens de `enxame/call/1`: um sinal de chamada (envelope `kind = CallSignal`, E2E) e a
+/// confirmação de que o par o aceitou (ou a recusa).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CallMsg {
+    Signal { envelope: Box<Envelope> },
+    Ack,
+    Reject,
 }
 
 /// Primeira mensagem de `enxame/sync/1`, enviada nos dois sentidos (spec 7.3).
@@ -278,6 +289,38 @@ mod tests {
             let back: CarryMsg = read_frame(&mut buf.as_slice(), 4096).await.unwrap();
             assert_eq!(back, msg);
         }
+    }
+
+    #[tokio::test]
+    async fn call_msgs_roundtrip() {
+        for msg in [CallMsg::Ack, CallMsg::Reject] {
+            let mut buf = Vec::new();
+            write_frame(&mut buf, &msg, 4096).await.unwrap();
+            let back: CallMsg = read_frame(&mut buf.as_slice(), 4096).await.unwrap();
+            assert_eq!(back, msg);
+        }
+        let id = Identity::generate();
+        let peer = Identity::generate();
+        let env = Envelope::create(
+            &id,
+            [1; 32],
+            Hlc::new(5, 0),
+            vec![],
+            &[crate::crypto::Recipient {
+                identity_pk: peer.identity_pk(),
+                enc_pk: peer.enc_pk(),
+            }],
+            crate::crypto::EnvelopeKind::CallSignal,
+            b"{}",
+        )
+        .unwrap();
+        let msg = CallMsg::Signal {
+            envelope: Box::new(env),
+        };
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &msg, 1 << 20).await.unwrap();
+        let back: CallMsg = read_frame(&mut buf.as_slice(), 1 << 20).await.unwrap();
+        assert_eq!(back, msg);
     }
 
     #[tokio::test]

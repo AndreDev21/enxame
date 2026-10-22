@@ -792,6 +792,144 @@ abstract class L {
   /// In pt, this message translates to:
   /// **'Sua área de trabalho pode não mostrar o ícone da bandeja. Se não aparecer, desligue \"Fechar a janela mantém o Enxame ativo\".'**
   String get trayUnavailable;
+
+  /// No description provided for @callAudio.
+  ///
+  /// In pt, this message translates to:
+  /// **'Chamada de voz'**
+  String get callAudio;
+
+  /// No description provided for @callVideo.
+  ///
+  /// In pt, this message translates to:
+  /// **'Chamada de vídeo'**
+  String get callVideo;
+
+  /// No description provided for @callScreen.
+  ///
+  /// In pt, this message translates to:
+  /// **'Transmitir minha tela'**
+  String get callScreen;
+
+  /// No description provided for @callCalling.
+  ///
+  /// In pt, this message translates to:
+  /// **'Chamando {name}…'**
+  String callCalling(String name);
+
+  /// No description provided for @callIncomingAudio.
+  ///
+  /// In pt, this message translates to:
+  /// **'{name} está te chamando (voz)'**
+  String callIncomingAudio(String name);
+
+  /// No description provided for @callIncomingVideo.
+  ///
+  /// In pt, this message translates to:
+  /// **'{name} está te chamando (vídeo)'**
+  String callIncomingVideo(String name);
+
+  /// No description provided for @callIncomingScreen.
+  ///
+  /// In pt, this message translates to:
+  /// **'{name} quer transmitir a tela para você'**
+  String callIncomingScreen(String name);
+
+  /// No description provided for @callConnecting.
+  ///
+  /// In pt, this message translates to:
+  /// **'Conectando…'**
+  String get callConnecting;
+
+  /// No description provided for @callHangup.
+  ///
+  /// In pt, this message translates to:
+  /// **'Desligar'**
+  String get callHangup;
+
+  /// No description provided for @callCancel.
+  ///
+  /// In pt, this message translates to:
+  /// **'Cancelar'**
+  String get callCancel;
+
+  /// No description provided for @callMute.
+  ///
+  /// In pt, this message translates to:
+  /// **'Silenciar microfone'**
+  String get callMute;
+
+  /// No description provided for @callUnmute.
+  ///
+  /// In pt, this message translates to:
+  /// **'Ativar microfone'**
+  String get callUnmute;
+
+  /// No description provided for @callCameraOff.
+  ///
+  /// In pt, this message translates to:
+  /// **'Desligar câmera'**
+  String get callCameraOff;
+
+  /// No description provided for @callCameraOn.
+  ///
+  /// In pt, this message translates to:
+  /// **'Ligar câmera'**
+  String get callCameraOn;
+
+  /// No description provided for @callShareScreen.
+  ///
+  /// In pt, this message translates to:
+  /// **'Compartilhar tela'**
+  String get callShareScreen;
+
+  /// No description provided for @callStopShare.
+  ///
+  /// In pt, this message translates to:
+  /// **'Parar de compartilhar'**
+  String get callStopShare;
+
+  /// No description provided for @callSharing.
+  ///
+  /// In pt, this message translates to:
+  /// **'Você está transmitindo sua tela'**
+  String get callSharing;
+
+  /// No description provided for @callWaitingVideo.
+  ///
+  /// In pt, this message translates to:
+  /// **'Aguardando o vídeo…'**
+  String get callWaitingVideo;
+
+  /// No description provided for @callEnded.
+  ///
+  /// In pt, this message translates to:
+  /// **'Chamada encerrada: {reason}'**
+  String callEnded(String reason);
+
+  /// No description provided for @pickScreenTitle.
+  ///
+  /// In pt, this message translates to:
+  /// **'O que você quer transmitir?'**
+  String get pickScreenTitle;
+
+  /// No description provided for @pickScreenScreens.
+  ///
+  /// In pt, this message translates to:
+  /// **'Telas'**
+  String get pickScreenScreens;
+
+  /// No description provided for @pickScreenWindows.
+  ///
+  /// In pt, this message translates to:
+  /// **'Janelas'**
+  String get pickScreenWindows;
+
+  /// No description provided for @pickScreenNone.
+  ///
+  /// In pt, this message translates to:
+  /// **'Nenhuma tela encontrada.'**
+  String get pickScreenNone;
 }
 
 class _LDelegate extends LocalizationsDelegate<L> {

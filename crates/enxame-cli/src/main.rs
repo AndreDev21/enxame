@@ -748,6 +748,13 @@ async fn serve(cfg: Config, auto_accept: bool) -> Result<()> {
                 Ok(Event::ContactAdded { display_name, fingerprint }) => {
                     println!("Contato mútuo: {display_name} [{fingerprint}]");
                 }
+                // Só para depuração: a CLI não atende chamadas, mas mostra que o sinal chegou.
+                Ok(Event::CallSignal { from_name, payload, .. }) => {
+                    println!(
+                        "Sinal de chamada de {from_name}: {}",
+                        String::from_utf8_lossy(&payload)
+                    );
+                }
                 Ok(Event::MessageReceived { from_name, .. }) => {
                     if let Some(m) = node.history(&from_name, 1).await.ok().and_then(|mut h| h.pop()) {
                         print_message(&m);

@@ -2,7 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'calls.dart';
+import 'device_media.dart';
 import 'rust/api/app.dart' as api;
+
+import 'package:flutter_webrtc/flutter_webrtc.dart' show DesktopCapturerSource;
+
 import 'rust/api/app.dart';
 
 /// Uma conversa na lista: um contato (1:1) ou um grupo.
@@ -58,6 +63,17 @@ class AppState extends ChangeNotifier {
   final List<Notice> notices = [];
   StreamSubscription<AppEvent>? _events;
   Timer? _timer;
+
+  final _signals = StreamController<IncomingSignal>.broadcast();
+
+  /// Chamadas 1:1 (áudio, vídeo e tela). O seletor de tela é fornecido pela interface.
+  late final CallController calls = CallController(
+    transport: _CoreSignals(_signals.stream),
+    media: DeviceMedia(pickScreen: () async => pickScreen?.call()),
+  );
+
+  /// A interface registra aqui o diálogo que deixa o usuário escolher a tela ou janela.
+  Future<DesktopCapturerSource?> Function()? pickScreen;
 
   bool get started => me != null;
 
@@ -151,6 +167,15 @@ class AppState extends ChangeNotifier {
       case AppEvent_GroupRemoved(:final name):
         notices.add(Notice('removed', name));
         refreshAll();
+      case AppEvent_CallSignal(
+        :final fromFingerprint,
+        :final fromName,
+        :final payload,
+      ):
+        final m = decodeSignal(payload);
+        if (m != null) {
+          _signals.add(IncomingSignal(fromFingerprint, fromName, m));
+        }
       case AppEvent_Lagged():
         refreshAll();
     }
@@ -240,4 +265,15 @@ class AppState extends ChangeNotifier {
     api.stopNode();
     super.dispose();
   }
+}
+
+/// Sinais pelo núcleo: enviados com `send_call_signal`, recebidos pelo stream de eventos.
+class _CoreSignals implements SignalTransport {
+  _CoreSignals(this.incoming);
+  @override
+  final Stream<IncomingSignal> incoming;
+
+  @override
+  Future<void> send(String peer, Map<String, dynamic> msg) =>
+      api.sendCallSignal(contact: peer, payload: encodeSignal(msg));
 }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../calls.dart';
 import '../state.dart';
+import 'call_ui.dart';
 import 'chat.dart';
 import 'contacts.dart';
 import 'contribution.dart';
@@ -29,11 +31,31 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     widget.state.addListener(_showNotices);
+    widget.state.pickScreen = () => showScreenPicker(context);
+    widget.state.calls.addListener(_callEnded);
+  }
+
+  CallPhase _lastPhase = CallPhase.idle;
+
+  /// Chamada que acabou: avisa o motivo.
+  void _callEnded() {
+    final c = widget.state.calls;
+    final was = _lastPhase;
+    _lastPhase = c.phase;
+    if (was != CallPhase.idle &&
+        c.phase == CallPhase.idle &&
+        c.endedReason != null &&
+        mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(L.of(context).callEnded(c.endedReason!))),
+      );
+    }
   }
 
   @override
   void dispose() {
     widget.state.removeListener(_showNotices);
+    widget.state.calls.removeListener(_callEnded);
     super.dispose();
   }
 
@@ -52,76 +74,83 @@ class _HomeScreenState extends State<HomeScreen> {
     final s = widget.state;
     final badge = s.requests.length;
     return Scaffold(
-      body: Row(
+      body: Stack(
         children: [
-          NavigationRail(
-            selectedIndex: _section.index,
-            labelType: NavigationRailLabelType.all,
-            onDestinationSelected: (i) =>
-                setState(() => _section = _Section.values[i]),
-            leading: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Icon(
-                Icons.hive_outlined,
-                size: 32,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+          Positioned.fill(
+            child: Row(
+              children: [
+                NavigationRail(
+                  selectedIndex: _section.index,
+                  labelType: NavigationRailLabelType.all,
+                  onDestinationSelected: (i) =>
+                      setState(() => _section = _Section.values[i]),
+                  leading: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Icon(
+                      Icons.hive_outlined,
+                      size: 32,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  destinations: [
+                    NavigationRailDestination(
+                      icon: const Icon(Icons.chat_bubble_outline),
+                      selectedIcon: const Icon(Icons.chat_bubble),
+                      label: Text(l.navChats),
+                    ),
+                    NavigationRailDestination(
+                      icon: Badge(
+                        isLabelVisible: badge > 0,
+                        label: Text('$badge'),
+                        child: const Icon(Icons.people_outline),
+                      ),
+                      selectedIcon: const Icon(Icons.people),
+                      label: Text(l.navContacts),
+                    ),
+                    NavigationRailDestination(
+                      icon: const Icon(Icons.volunteer_activism_outlined),
+                      selectedIcon: const Icon(Icons.volunteer_activism),
+                      label: Text(l.navContribution),
+                    ),
+                    NavigationRailDestination(
+                      icon: const Icon(Icons.network_check),
+                      selectedIcon: const Icon(Icons.network_check),
+                      label: Text(l.navDiagnostics),
+                    ),
+                    NavigationRailDestination(
+                      icon: const Icon(Icons.settings_outlined),
+                      selectedIcon: const Icon(Icons.settings),
+                      label: Text(l.navSettings),
+                    ),
+                  ],
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(
+                  child: ListenableBuilder(
+                    listenable: s,
+                    builder: (context, _) => switch (_section) {
+                      _Section.chats => ChatsView(
+                        state: s,
+                        onAddContact: () =>
+                            setState(() => _section = _Section.contacts),
+                      ),
+                      _Section.contacts => ContactsScreen(
+                        state: s,
+                        onOpenChat: (c) {
+                          s.select(c);
+                          setState(() => _section = _Section.chats);
+                        },
+                      ),
+                      _Section.contribution => ContributionScreen(state: s),
+                      _Section.diagnostics => const DiagnosticsScreen(),
+                      _Section.settings => SettingsScreen(shell: widget.shell),
+                    },
+                  ),
+                ),
+              ],
             ),
-            destinations: [
-              NavigationRailDestination(
-                icon: const Icon(Icons.chat_bubble_outline),
-                selectedIcon: const Icon(Icons.chat_bubble),
-                label: Text(l.navChats),
-              ),
-              NavigationRailDestination(
-                icon: Badge(
-                  isLabelVisible: badge > 0,
-                  label: Text('$badge'),
-                  child: const Icon(Icons.people_outline),
-                ),
-                selectedIcon: const Icon(Icons.people),
-                label: Text(l.navContacts),
-              ),
-              NavigationRailDestination(
-                icon: const Icon(Icons.volunteer_activism_outlined),
-                selectedIcon: const Icon(Icons.volunteer_activism),
-                label: Text(l.navContribution),
-              ),
-              NavigationRailDestination(
-                icon: const Icon(Icons.network_check),
-                selectedIcon: const Icon(Icons.network_check),
-                label: Text(l.navDiagnostics),
-              ),
-              NavigationRailDestination(
-                icon: const Icon(Icons.settings_outlined),
-                selectedIcon: const Icon(Icons.settings),
-                label: Text(l.navSettings),
-              ),
-            ],
           ),
-          const VerticalDivider(width: 1),
-          Expanded(
-            child: ListenableBuilder(
-              listenable: s,
-              builder: (context, _) => switch (_section) {
-                _Section.chats => ChatsView(
-                  state: s,
-                  onAddContact: () =>
-                      setState(() => _section = _Section.contacts),
-                ),
-                _Section.contacts => ContactsScreen(
-                  state: s,
-                  onOpenChat: (c) {
-                    s.select(c);
-                    setState(() => _section = _Section.chats);
-                  },
-                ),
-                _Section.contribution => ContributionScreen(state: s),
-                _Section.diagnostics => const DiagnosticsScreen(),
-                _Section.settings => SettingsScreen(shell: widget.shell),
-              },
-            ),
-          ),
+          Positioned.fill(child: CallOverlay(controller: s.calls)),
         ],
       ),
     );

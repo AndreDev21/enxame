@@ -1,5 +1,6 @@
 //! `Enxame`: ponto de entrada da API do core (spec 3.1).
 
+mod calls;
 mod carry_flow;
 mod files;
 mod groups;
@@ -38,7 +39,9 @@ use crate::{
     keystore::KeyStore,
     net::{self, NatKind, NatReport, PathMetrics, PathMonitor},
     order::order_ids,
-    proto::{self, ContactMsg, Hello, ALPN_CARRY, ALPN_CONTACT, ALPN_SYNC, SUPPORTED_VERSIONS},
+    proto::{
+        self, ContactMsg, Hello, ALPN_CALL, ALPN_CARRY, ALPN_CONTACT, ALPN_SYNC, SUPPORTED_VERSIONS,
+    },
     roles::{effective_kbps_cap, PlatformSignals, RateLimiter, RoleEngine, ThroughputEstimator},
     store::{self, Store},
     sync::{common_hash, Session, SyncStats},
@@ -184,6 +187,7 @@ struct Inner {
     cfg: Config,
     identity: Identity,
     keystore_name: &'static str,
+    call_guard: Mutex<crate::calls::SignalGuard>,
     dns: net::DnsChoice,
     endpoint: Endpoint,
     contacts: Mutex<ContactBook>,
@@ -427,6 +431,7 @@ impl Enxame {
             ALPN_CONTACT.to_vec(),
             ALPN_SYNC.to_vec(),
             ALPN_CARRY.to_vec(),
+            ALPN_CALL.to_vec(),
             iroh_blobs::ALPN.to_vec(),
         ]);
         let role_mode = RoleMode::parse(&cfg.role)?;
@@ -455,6 +460,7 @@ impl Enxame {
             cfg,
             identity,
             keystore_name,
+            call_guard: Mutex::new(crate::calls::SignalGuard::default()),
             dns,
             endpoint,
             contacts: Mutex::new(contacts),
@@ -1390,6 +1396,7 @@ async fn accept_loop(inner: Arc<Inner>) {
                 a if a == ALPN_CONTACT => handle_contact(&inner, &conn).await,
                 a if a == ALPN_SYNC => handle_sync(&inner, &conn).await,
                 a if a == ALPN_CARRY => carry_flow::handle_carry(&inner, &conn).await,
+                a if a == ALPN_CALL => calls::handle_call(&inner, &conn).await,
                 a if a == iroh_blobs::ALPN => inner
                     .blobs
                     .protocol

@@ -212,3 +212,15 @@ membros do retrato que o remetente conhece (≤ 20, dentro do limite de 32 desti
 v4: `groups(group_id, creator, seq, active, snapshot, updated_at)`. v5: `pending_delivery` e
 `carry_queue` passam a ter chave `(envelope_id, recipient)`, porque uma mensagem de grupo tem vários
 destinatários.
+
+## Fase 6.4 — chamadas (ADR 0012)
+
+### `enxame/call/1`
+Uma conexão QUIC por sinal, apenas de contatos mútuos: o iniciador abre um stream bidirecional e envia
+`CallMsg::Signal { envelope }`; o receptor valida e responde `CallMsg::Ack` (ou `CallMsg::Reject`).
+`CallMsg = Signal { envelope: Box<Envelope> } | Ack | Reject` (a ordem é parte do wire).
+
+O envelope é `kind = CallSignal`, com `conversation_id` 1:1, sem `parents`, **um** destinatário (o
+contato) e conteúdo de 1 a 64 KiB (JSON do app: `invite`, `accept`, `reject`, `busy`, `offer`,
+`answer`, `ice`, `hangup`). Validação: id/assinatura, autor = o par, HLC a ±60 s, id inédito
+(memória de ~2 min) e ≤ 200 sinais por contato a cada 10 s. Não é gravado no banco nem sincronizado.

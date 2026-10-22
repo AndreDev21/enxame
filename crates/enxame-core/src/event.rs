@@ -49,4 +49,11 @@ pub enum Event {
     },
     /// Fui removido do grupo.
     GroupRemoved { group_id: [u8; 32], name: String },
+    /// Sinal de chamada de um contato (oferta/resposta SDP, candidato ICE, desligar...). A carga
+    /// é opaca para o núcleo: o app a interpreta. Chega em tempo real e não fica guardada.
+    CallSignal {
+        from_name: String,
+        from_fingerprint: String,
+        payload: Vec<u8>,
+    },
 }

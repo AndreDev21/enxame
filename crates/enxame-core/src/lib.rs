@@ -4,6 +4,7 @@
 //! partir das próximas fases.
 
 mod blobs;
+mod calls;
 mod carry;
 mod config;
 mod contacts;

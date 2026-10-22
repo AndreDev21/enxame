@@ -400,4 +400,83 @@ class LPt extends L {
   @override
   String get trayUnavailable =>
       'Sua área de trabalho pode não mostrar o ícone da bandeja. Se não aparecer, desligue \"Fechar a janela mantém o Enxame ativo\".';
+
+  @override
+  String get callAudio => 'Chamada de voz';
+
+  @override
+  String get callVideo => 'Chamada de vídeo';
+
+  @override
+  String get callScreen => 'Transmitir minha tela';
+
+  @override
+  String callCalling(String name) {
+    return 'Chamando $name…';
+  }
+
+  @override
+  String callIncomingAudio(String name) {
+    return '$name está te chamando (voz)';
+  }
+
+  @override
+  String callIncomingVideo(String name) {
+    return '$name está te chamando (vídeo)';
+  }
+
+  @override
+  String callIncomingScreen(String name) {
+    return '$name quer transmitir a tela para você';
+  }
+
+  @override
+  String get callConnecting => 'Conectando…';
+
+  @override
+  String get callHangup => 'Desligar';
+
+  @override
+  String get callCancel => 'Cancelar';
+
+  @override
+  String get callMute => 'Silenciar microfone';
+
+  @override
+  String get callUnmute => 'Ativar microfone';
+
+  @override
+  String get callCameraOff => 'Desligar câmera';
+
+  @override
+  String get callCameraOn => 'Ligar câmera';
+
+  @override
+  String get callShareScreen => 'Compartilhar tela';
+
+  @override
+  String get callStopShare => 'Parar de compartilhar';
+
+  @override
+  String get callSharing => 'Você está transmitindo sua tela';
+
+  @override
+  String get callWaitingVideo => 'Aguardando o vídeo…';
+
+  @override
+  String callEnded(String reason) {
+    return 'Chamada encerrada: $reason';
+  }
+
+  @override
+  String get pickScreenTitle => 'O que você quer transmitir?';
+
+  @override
+  String get pickScreenScreens => 'Telas';
+
+  @override
+  String get pickScreenWindows => 'Janelas';
+
+  @override
+  String get pickScreenNone => 'Nenhuma tela encontrada.';
 }

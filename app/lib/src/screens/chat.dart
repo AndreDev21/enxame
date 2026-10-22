@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/app_localizations.dart';
 import '../rust/api/app.dart' as api;
 import '../rust/api/app.dart';
+import '../calls.dart';
 import '../state.dart';
 
 String _clock(BigInt ms) {
@@ -284,11 +285,35 @@ class _ChatPaneState extends State<ChatPane> {
                   overflow: TextOverflow.ellipsis,
                 )
               : Text(conv is DmConversation ? conv.contact.fingerprint : ''),
-          trailing: isGroup
+          trailing: conv is GroupConversation
               ? IconButton(
                   tooltip: l.groupInfo,
                   icon: const Icon(Icons.info_outline),
                   onPressed: () => _groupInfo(context, conv.group),
+                )
+              : conv is DmConversation
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final (kind, icon, tip) in [
+                      (CallKind.audio, Icons.call, l.callAudio),
+                      (CallKind.video, Icons.videocam_outlined, l.callVideo),
+                      (
+                        CallKind.screen,
+                        Icons.screen_share_outlined,
+                        l.callScreen,
+                      ),
+                    ])
+                      IconButton(
+                        tooltip: tip,
+                        icon: Icon(icon),
+                        onPressed: () => widget.state.calls.call(
+                          conv.contact.fingerprint,
+                          conv.contact.name,
+                          kind,
+                        ),
+                      ),
+                  ],
                 )
               : null,
         ),

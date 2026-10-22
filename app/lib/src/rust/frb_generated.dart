@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 125278917;
+  int get rustContentHash => -1057090612;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -150,6 +150,11 @@ abstract class RustLibApi extends BaseApi {
   Future<String> crateApiAppRole();
 
   Future<void> crateApiAppSaveSettings({required Settings s});
+
+  Future<void> crateApiAppSendCallSignal({
+    required String contact,
+    required String payload,
+  });
 
   Future<void> crateApiAppSendFile({
     required List<String> contacts,
@@ -884,6 +889,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "save_settings", argNames: ["s"]);
 
   @override
+  Future<void> crateApiAppSendCallSignal({
+    required String contact,
+    required String payload,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(contact, serializer);
+          sse_encode_String(payload, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 25,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiAppSendCallSignalConstMeta,
+        argValues: [contact, payload],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiAppSendCallSignalConstMeta => const TaskConstMeta(
+    debugName: "send_call_signal",
+    argNames: ["contact", "payload"],
+  );
+
+  @override
   Future<void> crateApiAppSendFile({
     required List<String> contacts,
     required String path,
@@ -897,7 +936,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 26,
             port: port_,
           );
         },
@@ -931,7 +970,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 27,
             port: port_,
           );
         },
@@ -965,7 +1004,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 28,
             port: port_,
           );
         },
@@ -995,7 +1034,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 29,
             port: port_,
           );
         },
@@ -1023,7 +1062,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 30,
             port: port_,
           );
         },
@@ -1055,7 +1094,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1084,7 +1123,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1171,6 +1210,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           name: dco_decode_String(raw[2]),
         );
       case 8:
+        return AppEvent_CallSignal(
+          fromFingerprint: dco_decode_String(raw[1]),
+          fromName: dco_decode_String(raw[2]),
+          payload: dco_decode_String(raw[3]),
+        );
+      case 9:
         return AppEvent_Lagged();
       default:
         throw Exception("unreachable");
@@ -1630,6 +1675,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         var var_name = sse_decode_String(deserializer);
         return AppEvent_GroupRemoved(groupId: var_groupId, name: var_name);
       case 8:
+        var var_fromFingerprint = sse_decode_String(deserializer);
+        var var_fromName = sse_decode_String(deserializer);
+        var var_payload = sse_decode_String(deserializer);
+        return AppEvent_CallSignal(
+          fromFingerprint: var_fromFingerprint,
+          fromName: var_fromName,
+          payload: var_payload,
+        );
+      case 9:
         return AppEvent_Lagged();
       default:
         throw UnimplementedError('');
@@ -2205,8 +2259,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_i_32(7, serializer);
         sse_encode_String(groupId, serializer);
         sse_encode_String(name, serializer);
-      case AppEvent_Lagged():
+      case AppEvent_CallSignal(
+        fromFingerprint: final fromFingerprint,
+        fromName: final fromName,
+        payload: final payload,
+      ):
         sse_encode_i_32(8, serializer);
+        sse_encode_String(fromFingerprint, serializer);
+        sse_encode_String(fromName, serializer);
+        sse_encode_String(payload, serializer);
+      case AppEvent_Lagged():
+        sse_encode_i_32(9, serializer);
     }
   }
 

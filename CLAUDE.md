@@ -120,6 +120,9 @@ cargo run -p enxame-cli -- --help
 - Rodar: `cd app && flutter run -d linux` (o CMake compila a biblioteca Rust). Testes:
   `flutter analyze`, `flutter test` e, com núcleo real, `ENXAME_DATA_DIR=$(mktemp -d) ENXAME_RELAY=disabled
   ENXAME_MDNS=0 flutter test integration_test -d linux`.
+- Chamadas 1:1 (áudio/vídeo/tela): sinalização `enxame/call/1` no núcleo (`calls`, `node/calls.rs`) e
+  `CallController` no app (`app/lib/src/calls.dart`, `flutter_webrtc`); ADR 0012. Testes:
+  `flutter test integration_test/call_test.dart -d linux` (captura a tela de verdade).
 - DNS automático no núcleo (ADR 0010). Textos em `app/lib/l10n/*.arb` (pt modelo, en).
 - **Não use automação de teclado/mouse (xdotool) na tela do usuário** para testar a interface: use
   `integration_test`.

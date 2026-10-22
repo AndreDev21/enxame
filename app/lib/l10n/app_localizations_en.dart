@@ -398,4 +398,83 @@ class LEn extends L {
   @override
   String get trayUnavailable =>
       'Your desktop may not show the tray icon. If it does not appear, turn off \"Closing the window keeps Enxame running\".';
+
+  @override
+  String get callAudio => 'Voice call';
+
+  @override
+  String get callVideo => 'Video call';
+
+  @override
+  String get callScreen => 'Share my screen';
+
+  @override
+  String callCalling(String name) {
+    return 'Calling $name…';
+  }
+
+  @override
+  String callIncomingAudio(String name) {
+    return '$name is calling you (voice)';
+  }
+
+  @override
+  String callIncomingVideo(String name) {
+    return '$name is calling you (video)';
+  }
+
+  @override
+  String callIncomingScreen(String name) {
+    return '$name wants to share their screen with you';
+  }
+
+  @override
+  String get callConnecting => 'Connecting…';
+
+  @override
+  String get callHangup => 'Hang up';
+
+  @override
+  String get callCancel => 'Cancel';
+
+  @override
+  String get callMute => 'Mute microphone';
+
+  @override
+  String get callUnmute => 'Unmute microphone';
+
+  @override
+  String get callCameraOff => 'Turn camera off';
+
+  @override
+  String get callCameraOn => 'Turn camera on';
+
+  @override
+  String get callShareScreen => 'Share screen';
+
+  @override
+  String get callStopShare => 'Stop sharing';
+
+  @override
+  String get callSharing => 'You are sharing your screen';
+
+  @override
+  String get callWaitingVideo => 'Waiting for video…';
+
+  @override
+  String callEnded(String reason) {
+    return 'Call ended: $reason';
+  }
+
+  @override
+  String get pickScreenTitle => 'What do you want to share?';
+
+  @override
+  String get pickScreenScreens => 'Screens';
+
+  @override
+  String get pickScreenWindows => 'Windows';
+
+  @override
+  String get pickScreenNone => 'No screen found.';
 }

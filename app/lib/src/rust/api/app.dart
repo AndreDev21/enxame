@@ -94,6 +94,15 @@ Future<GroupSendResult> sendGroupText({
   required String text,
 }) => RustLib.instance.api.crateApiAppSendGroupText(group: group, text: text);
 
+/// Envia um sinal de chamada (JSON) a um contato mútuo, em tempo real (erro se estiver offline).
+Future<void> sendCallSignal({
+  required String contact,
+  required String payload,
+}) => RustLib.instance.api.crateApiAppSendCallSignal(
+  contact: contact,
+  payload: payload,
+);
+
 Future<List<FileItem>> files({required String contact}) =>
     RustLib.instance.api.crateApiAppFiles(contact: contact);
 
@@ -177,6 +186,13 @@ sealed class AppEvent with _$AppEvent {
     required String groupId,
     required String name,
   }) = AppEvent_GroupRemoved;
+
+  /// Sinal de chamada (JSON do app) de um contato; chega em tempo real e não fica guardado.
+  const factory AppEvent.callSignal({
+    required String fromFingerprint,
+    required String fromName,
+    required String payload,
+  }) = AppEvent_CallSignal;
 
   /// O stream perdeu eventos: a interface deve recarregar o que mostra.
   const factory AppEvent.lagged() = AppEvent_Lagged;

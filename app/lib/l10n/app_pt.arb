@@ -213,5 +213,63 @@
       }
     }
   },
-  "trayUnavailable": "Sua área de trabalho pode não mostrar o ícone da bandeja. Se não aparecer, desligue \"Fechar a janela mantém o Enxame ativo\"."
+  "trayUnavailable": "Sua área de trabalho pode não mostrar o ícone da bandeja. Se não aparecer, desligue \"Fechar a janela mantém o Enxame ativo\".",
+  "callAudio": "Chamada de voz",
+  "callVideo": "Chamada de vídeo",
+  "callScreen": "Transmitir minha tela",
+  "callCalling": "Chamando {name}…",
+  "@callCalling": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "callIncomingAudio": "{name} está te chamando (voz)",
+  "@callIncomingAudio": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "callIncomingVideo": "{name} está te chamando (vídeo)",
+  "@callIncomingVideo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "callIncomingScreen": "{name} quer transmitir a tela para você",
+  "@callIncomingScreen": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "callConnecting": "Conectando…",
+  "callHangup": "Desligar",
+  "callCancel": "Cancelar",
+  "callMute": "Silenciar microfone",
+  "callUnmute": "Ativar microfone",
+  "callCameraOff": "Desligar câmera",
+  "callCameraOn": "Ligar câmera",
+  "callShareScreen": "Compartilhar tela",
+  "callStopShare": "Parar de compartilhar",
+  "callSharing": "Você está transmitindo sua tela",
+  "callWaitingVideo": "Aguardando o vídeo…",
+  "callEnded": "Chamada encerrada: {reason}",
+  "@callEnded": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "pickScreenTitle": "O que você quer transmitir?",
+  "pickScreenScreens": "Telas",
+  "pickScreenWindows": "Janelas",
+  "pickScreenNone": "Nenhuma tela encontrada."
 }

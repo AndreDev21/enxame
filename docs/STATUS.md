@@ -44,8 +44,10 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
      (ADR 0011; teste de ponta a ponta com o CLI cobre envio de arquivo e configurações; **bandeja não
      testada com um host real** — esta máquina não tem StatusNotifierWatcher; arquivos em grupo não
      suportados);
-   - **6.4 chamadas 1:1: áudio, vídeo e transmissão de tela** (`flutter_webrtc`, sinalização `CallSignal`
-     E2E; captura Wayland/PipeWire e X11; ver spec Fase 6 e decisão 5 sobre TURN);
+   - **6.4 chamadas 1:1: áudio, vídeo e transmissão de tela** — **implementado** (ADR 0012): sinalização
+     E2E em `enxame/call/1`, `CallController` no app, botões no chat, seletor de tela, indicador. Testado: a
+     tela real é capturada e decodificada pelo outro lado (mesmo processo); **falta**: microfone/câmera
+     reais, Wayland, duas máquinas reais, TURN para NAT simétrico/4G;
    - 6.5 empacotamento (AppImage) e binários pela CI;
    - 6.6 Windows (build, instalador, campo).
    Próxima fase depois desta: Fase 7 (chamadas em grupo e TURN, stretch). — leia o princípio abaixo.

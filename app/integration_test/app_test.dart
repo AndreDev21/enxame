@@ -92,9 +92,11 @@ void main() {
       serve.kill();
       peerDir.deleteSync(recursive: true);
     });
+    final serveLines = <String>[];
     final ticketReady = Completer<String>();
     serve.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(
       (line) {
+        serveLines.add(line);
         if (line.startsWith('enxame1') && !ticketReady.isCompleted) {
           ticketReady.complete(line.trim());
         }
@@ -135,6 +137,27 @@ void main() {
       if (!seen) await tester.pump(const Duration(milliseconds: 500));
     }
     expect(seen, isTrue, reason: 'a mensagem chegou ao CLI');
+
+    // Chamada: o sinal do app atravessa a ponte e o núcleo (E2E, em tempo real) até o outro nó.
+    final peerFp = (await api.contacts())
+        .firstWhere((c) => c.name == 'Beto')
+        .fingerprint;
+    await api.sendCallSignal(
+      contact: peerFp,
+      payload: '{"t":"invite","id":"teste-1","kind":"screen"}',
+    );
+    var gotSignal = false;
+    for (var i = 0; i < 40 && !gotSignal; i++) {
+      gotSignal = serveLines.any(
+        (l) => l.contains('Sinal de chamada de Teste') && l.contains('teste-1'),
+      );
+      if (!gotSignal) await tester.pump(const Duration(milliseconds: 250));
+    }
+    expect(
+      gotSignal,
+      isTrue,
+      reason: 'o sinal de chamada chegou ao outro nó: $serveLines',
+    );
 
     // Arquivo: o app envia (mesma chamada do botão e do arrastar-e-soltar) e o CLI baixa dele.
     final src = File('${peerDir.path}/origem.bin')
