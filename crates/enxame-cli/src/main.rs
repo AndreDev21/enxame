@@ -398,14 +398,36 @@ async fn chat(cfg: Config, contacts: &[String]) -> Result<()> {
         tokio::select! {
             _ = &mut ctrl_c => break,
             ev = events.recv() => match ev {
-                Ok(Event::MessageReceived { from_name, from_fingerprint, .. }) => {
+                Ok(Event::MessageReceived { conversation_id, from_name, from_fingerprint, .. }) => {
+                    // Grupo: mostra com o prefixo `#nome`.
+                    let group = node
+                        .groups()
+                        .await?
+                        .into_iter()
+                        .find(|g| g.id == conversation_id && g.active);
+                    if let Some(g) = group {
+                        if let Some(m) = node.group_history(&g.name, 1).await?.pop() {
+                            print!("#{} ", g.name);
+                            print_message(&m);
+                        }
                     // Só as conversas abertas; as outras ficam no histórico delas.
-                    if let Some(contact) = owner(&from_name, &from_fingerprint) {
+                    } else if let Some(contact) = owner(&from_name, &from_fingerprint) {
                         if let Some(m) = node.history(contact, 1).await?.pop() {
                             print_message(&m);
                         }
                     }
                 }
+                Ok(Event::GroupJoined { name, creator_name, exposed, .. }) => {
+                    println!("(você entrou no grupo #{name}, criado por {creator_name})");
+                    if !exposed.is_empty() {
+                        println!(
+                            "(AVISO: nesse grupo há quem não é seu contato e verá seu IP, e você o deles: {})",
+                            exposed.join(", ")
+                        );
+                    }
+                }
+                Ok(Event::GroupUpdated { name, seq, .. }) => println!("(grupo #{name} atualizado, versão {seq})"),
+                Ok(Event::GroupRemoved { name, .. }) => println!("(você foi removido do grupo #{name})"),
                 Ok(Event::ContactRequested { display_name, fingerprint, .. }) => {
                     println!("(pedido de contato de {display_name} [{fingerprint}]; use `serve` para responder)");
                 }
@@ -428,6 +450,23 @@ async fn chat(cfg: Config, contacts: &[String]) -> Result<()> {
                 if line.is_empty() { continue; }
                 if line.starts_with('/') {
                     chat_command(&node, &contacts[0], line).await;
+                    continue;
+                }
+                // `#grupo texto` manda para um grupo.
+                if let Some(rest) = line.strip_prefix('#') {
+                    match rest.split_once(' ') {
+                        Some((group, text)) => match node.send_group_text(group, text.trim()).await {
+                            Ok(s) if s.offline.is_empty() => println!("(→ #{group}: entregue a {})", s.delivered),
+                            Ok(s) => println!(
+                                "(→ #{group}: entregue a {}; offline: {}; {} carrier(s) guardam o aviso)",
+                                s.delivered,
+                                s.offline.join(", "),
+                                s.carriers
+                            ),
+                            Err(e) => println!("erro: {e}"),
+                        },
+                        None => println!("(uso: #grupo texto)"),
+                    }
                     continue;
                 }
                 // `@nome` sem texto é um engano: não manda "@nome" como mensagem.
@@ -510,6 +549,63 @@ async fn chat_command(node: &Enxame, default_contact: &str, line: &str) {
             }
             None => println!("(uso: /baixar <n> [contato])"),
         },
+        Some("/grupos") => match node.groups().await {
+            Ok(list) if list.is_empty() => println!("(nenhum grupo; use /grupo criar <nome> <contatos...>)"),
+            Ok(list) => {
+                for g in list {
+                    let members: Vec<String> = g
+                        .members
+                        .iter()
+                        .map(|m| {
+                            let tag = if m.is_me { " (eu)" } else if !m.is_contact { " (não é contato)" } else { "" };
+                            format!("{}{tag}", m.name)
+                        })
+                        .collect();
+                    println!(
+                        "  #{}{}  criador: {}  membros: {}",
+                        g.name,
+                        if g.active { "" } else { " [removido]" },
+                        g.creator_name,
+                        members.join(", ")
+                    );
+                }
+            }
+            Err(e) => println!("erro: {e}"),
+        },
+        // /grupo criar <nome> <contatos...> | add <grupo> <contato> | remover <grupo> <membro> |
+        // nome <grupo> <novo> | historico <grupo> | sync <grupo>. Nomes sem espaços.
+        Some("/grupo") => {
+            let rest: Vec<&str> = parts.collect();
+            let result = match rest.as_slice() {
+                ["criar", name, members @ ..] if !members.is_empty() => {
+                    node.create_group(name, members).await.map(|(g, direct)| {
+                        format!("(grupo #{} criado com {} membros; entregue direto a {direct})", g.name, g.members.len())
+                    })
+                }
+                ["add", group, contact] => node.add_group_member(group, contact).await.map(|(g, direct)| {
+                    format!("(#{}: {} membros; retrato entregue direto a {direct})", g.name, g.members.len())
+                }),
+                ["remover", group, member] => node.remove_group_member(group, member).await.map(|(g, direct)| {
+                    format!("(#{}: {} membros; retrato entregue direto a {direct})", g.name, g.members.len())
+                }),
+                ["nome", group, new] => node.rename_group(group, new).await.map(|(g, _)| format!("(grupo agora é #{})", g.name)),
+                ["sync", group] => node.sync_group(group).await.map(|n| format!("(#{group}: {n} membro(s) responderam)")),
+                ["historico", group] => match node.group_history(group, 30).await {
+                    Ok(list) => {
+                        for m in &list {
+                            print_message(m);
+                        }
+                        Ok(format!("({} mensagens)", list.len()))
+                    }
+                    Err(e) => Err(e),
+                },
+                _ => Ok("(uso: /grupo criar <nome> <contatos...> | add <grupo> <contato> | remover <grupo> <membro> | nome <grupo> <novo> | sync <grupo> | historico <grupo>)".to_owned()),
+            };
+            match result {
+                Ok(msg) => println!("{msg}"),
+                Err(e) => println!("erro: {e}"),
+            }
+        }
         Some("/jogo") => {
             node.set_game_mode(on(parts.next())).await;
             println!("(modo jogo; papel atual: {:?})", node.role());
@@ -526,7 +622,7 @@ async fn chat_command(node: &Enxame, default_contact: &str, line: &str) {
             Err(e) => println!("erro: {e}"),
         },
         _ => println!(
-            "(comandos: /enviar <caminho> [contatos], /arquivos, /baixar <n>, /papel, /jogo on|off, /contribuir on|off, /contribuicao, /sair)"
+            "(comandos: /enviar <caminho> [contatos], /arquivos, /baixar <n>, /grupos, /grupo ..., #grupo texto, /papel, /jogo on|off, /contribuir on|off, /contribuicao, /sair)"
         ),
     }
 }

@@ -80,13 +80,19 @@ pub fn make_receipt(
 }
 
 /// Um recibo é utilizável se é estruturalmente válido, do tipo certo e de um contato mútuo.
-fn receipt_author_ok(env: &Envelope, contacts: &[Contact], me: &[u8; 32]) -> bool {
+fn receipt_author_ok(
+    env: &Envelope,
+    contacts: &[Contact],
+    co_members: &[Contact],
+    me: &[u8; 32],
+) -> bool {
     env.verify().is_ok()
         && env.kind == EnvelopeKind::Receipt
         && !env.parents.is_empty()
         && env.author != *me
         && contacts
             .iter()
+            .chain(co_members)
             .any(|c| c.is_mutual() && c.identity_pk == env.author)
 }
 
@@ -104,8 +110,13 @@ pub struct CarrySession<'a> {
     pub store: &'a Store,
     pub identity: &'a Identity,
     pub peer: &'a Contact,
-    /// Meus contatos mútuos (autores e destinatários válidos).
+    /// Meus contatos mútuos (autores 1:1 e destinatários válidos).
     pub contacts: &'a [Contact],
+    /// Co-membros de grupo que não são contatos: também podem ser autores/destinatários, mas só
+    /// de mensagens de grupo (ADR 0009).
+    pub co_members: &'a [Contact],
+    /// Grupos ativos, para autorizar autores de mensagens de grupo.
+    pub groups: Vec<crate::groups::StoredGroup>,
     pub limits: CarryLimits,
     pub max_frame: usize,
     pub limiter: &'a RateLimiter,
@@ -307,12 +318,22 @@ impl CarrySession<'_> {
         }
     }
 
+    /// Contato ou co-membro com esta identidade.
+    fn peer_named(&self, pk: &[u8; 32]) -> Option<&Contact> {
+        self.contacts
+            .iter()
+            .chain(self.co_members)
+            .find(|c| &c.identity_pk == pk)
+    }
+
     /// Valida e aplica recibos do par. Devolve `(novos, cópias expurgadas)`.
     async fn learn_receipts(&self, receipts: Vec<Envelope>) -> Result<(usize, usize)> {
         let me = self.identity.identity_pk();
         let (mut learned, mut purged) = (0, 0);
         for r in receipts.into_iter().take(RECEIPTS_PER_SESSION) {
-            if !receipt_author_ok(&r, self.contacts, &me) || r.parents.len() > MAX_PARENTS {
+            if !receipt_author_ok(&r, self.contacts, self.co_members, &me)
+                || r.parents.len() > MAX_PARENTS
+            {
                 continue;
             }
             let now = unix_now_ms();
@@ -340,6 +361,7 @@ impl CarrySession<'_> {
                 self.store,
                 self.identity,
                 self.contacts,
+                &self.groups,
                 self.max_file_bytes,
                 env,
             )
@@ -349,7 +371,7 @@ impl CarrySession<'_> {
                     by_author.entry(author).or_default().push(copy.id);
                     if outcome == Ingest::Stored {
                         stored += 1;
-                        if let Some(c) = self.contacts.iter().find(|c| c.identity_pk == author) {
+                        if let Some(c) = self.peer_named(&author) {
                             (self.on_received)(c, &copy);
                         }
                     }
@@ -359,7 +381,7 @@ impl CarrySession<'_> {
         }
         let mut receipts = Vec::new();
         for (author, ids) in by_author {
-            let Some(contact) = self.contacts.iter().find(|c| c.identity_pk == author) else {
+            let Some(contact) = self.peer_named(&author) else {
                 continue;
             };
             for chunk in ids.chunks(MAX_PARENTS) {
@@ -394,6 +416,7 @@ impl CarrySession<'_> {
             && self
                 .contacts
                 .iter()
+                .chain(self.co_members)
                 .any(|c| c.is_mutual() && c.identity_pk == for_recipient);
         if !recipient_ok {
             return Ok(CarryMsg::Reject {
@@ -424,7 +447,7 @@ impl CarrySession<'_> {
                 .run(move |c| {
                     Ok((
                         store::is_acked(c, &id, &for_recipient)?,
-                        store::carry_has(c, &id)?,
+                        store::carry_has_for(c, &id, &for_recipient)?,
                     ))
                 })
                 .await?;
@@ -634,6 +657,8 @@ mod tests {
             identity: &a.id,
             peer: &a_peer,
             contacts: &ac,
+            co_members: &[],
+            groups: vec![],
             limits: CarryLimits::for_role(a_role, budget),
             max_frame: 1 << 20,
             limiter: &limiter,
@@ -656,6 +681,8 @@ mod tests {
             identity: &b.id,
             peer: &b_peer,
             contacts: &bc,
+            co_members: &[],
+            groups: vec![],
             limits: CarryLimits::for_role(b_role, budget),
             max_frame: 1 << 20,
             limiter: &limiter,
@@ -827,6 +854,8 @@ mod tests {
             identity: &a.id,
             peer: &c_peer,
             contacts: &ac,
+            co_members: &[],
+            groups: vec![],
             limits: CarryLimits::for_role(Role::Peer, &budget),
             max_frame: 1 << 20,
             limiter: &limiter,
@@ -849,6 +878,8 @@ mod tests {
             identity: &c.id,
             peer: &a_peer,
             contacts: &cc,
+            co_members: &[],
+            groups: vec![],
             limits: CarryLimits::for_role(c_role, &budget),
             max_frame: 1 << 20,
             limiter: &limiter,

@@ -174,3 +174,41 @@ segmentos entre os provedores.
 `Offer { for_recipient, envelopes, blobs: Vec<BlobOffer { hash, enc_size }> }`. Um carrier
 `Relay`/`SuperPeer` que aceitar ao menos um envelope busca os blobs do ofertante (limite
 `prefetch_max_mb`, quota de carry, e corte se passar de `enc_size`).
+
+## Fase 5 — grupos pequenos (ADR 0009)
+
+### `GroupSnapshot` (conteúdo de um envelope `kind = GroupOp`)
+`postcard( { version: u8 (=1), nonce: [u8;16], creator: [u8;32], seq: u64 (≥ 1), name: String,
+members: Vec<GroupMember>, op: GroupOpKind } )`, com
+`GroupMember { identity_pk, enc_pk, device_cert, node_addr, display_name }` e
+`GroupOpKind = Create | Add{member} | Remove{member} | Rename` (a ordem é parte do wire).
+
+- `group_id = BLAKE3("enxame/group/1\0" ‖ creator ‖ nonce)`; também é o `conversation_id` das
+  mensagens do grupo.
+- O retrato é o **estado completo**; vale o de maior `seq`. Só o `creator` emite retratos: um
+  `GroupOp` cujo autor ≠ `creator` é descartado.
+- Validação: versão, `seq ≥ 1`, nome de 1 a 64 caracteres, 1 a 20 membros sem repetição, cada
+  `device_cert` com assinatura válida da própria `identity_pk` e `node_id` igual ao do `node_addr`,
+  e o criador consta na lista. Tamanho ≤ 64 KiB.
+- Um retrato que **não me inclui** só é aceito para um grupo que eu já conheço (é a minha remoção).
+- Transporte: envelope na conversa 1:1 entre o criador e cada membro (e o removido), selado só
+  para os dois. Sincronização, pendência, carry e recibo funcionam sem mudança.
+
+### Mensagens do grupo
+`Text`/`FileRef` com `conversation_id = group_id`, uma chave de conteúdo selada para **todos** os
+membros do retrato que o remetente conhece (≤ 20, dentro do limite de 32 destinatários).
+`Receipt` continua 1:1. `GroupOp` não circula dentro da conversa do grupo.
+
+### Sincronização e carry com co-membros
+- Um co-membro que não é contato entra na lista de pares: o laço de sincronização, o aceite de
+  `enxame/sync/1`, `enxame/carry/1` e `iroh-blobs` passam a considerá-lo.
+- Uma sessão de sincronização negocia `conversations` = 1:1 (só se o par for contato) ∪ grupos
+  ativos que os dois têm. Um `Heads` de conversa que não temos é respondido com `Heads` vazio, para
+  o par encerrar a contagem sem esperar o timeout de 30 s.
+- Autorização do autor: no grupo, qualquer membro do retrato atual (não precisa ser quem entrega);
+  no 1:1, o par ou eu. Em carry de grupo, o autor e eu precisamos constar no retrato.
+
+### Banco (`user_version` 4 e 5)
+v4: `groups(group_id, creator, seq, active, snapshot, updated_at)`. v5: `pending_delivery` e
+`carry_queue` passam a ter chave `(envelope_id, recipient)`, porque uma mensagem de grupo tem vários
+destinatários.

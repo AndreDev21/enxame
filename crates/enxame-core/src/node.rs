@@ -2,9 +2,11 @@
 
 mod carry_flow;
 mod files;
+mod groups;
 mod runtime;
 
 pub use files::{Downloaded, FileEntry, PrefetchedBlob};
+pub use groups::{GroupInfo, GroupMemberInfo, SentGroupMessage};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -30,6 +32,7 @@ use crate::{
     config::{Config, RoleMode},
     contacts::{self, Contact, ContactBook, ContactStatus},
     crypto::{dm_conversation_id, Envelope, EnvelopeKind, Recipient, MAX_TEXT_BYTES},
+    groups::{group_only_peers, shared_groups, StoredGroup},
     hlc::{Hlc, HlcClock},
     identity::{fingerprint, unix_now, unix_now_ms, Identity, InviteTicket},
     keystore::KeyStore,
@@ -253,6 +256,60 @@ impl Inner {
             .cloned()
             .collect()
     }
+
+    /// Grupos guardados (ativos ou não).
+    async fn groups_now(&self) -> Result<Vec<StoredGroup>> {
+        self.store.run(|c| store::groups_load(c)).await
+    }
+
+    /// Co-membros de grupos ativos que não são contatos meus (ADR 0009).
+    async fn co_members(&self) -> Result<Vec<Contact>> {
+        let groups = self.groups_now().await?;
+        let contacts = self.mutual_contacts();
+        Ok(group_only_peers(
+            &groups,
+            &self.identity.identity_pk(),
+            &contacts,
+        ))
+    }
+
+    /// Pares de rede: contatos mútuos e co-membros de grupo.
+    async fn peers(&self) -> Result<Vec<Contact>> {
+        let mut peers = self.mutual_contacts();
+        peers.extend(self.co_members().await?);
+        Ok(peers)
+    }
+
+    /// Resolve por nome/fingerprint entre contatos e, se não houver, entre co-membros de grupo.
+    async fn resolve_peer(&self, query: &str) -> Result<Contact> {
+        let from_book = self.book().resolve(query).cloned();
+        match from_book {
+            Ok(c) => Ok(c),
+            Err(e) => {
+                let q = query.trim().to_lowercase();
+                self.co_members()
+                    .await?
+                    .into_iter()
+                    .find(|c| {
+                        c.display_name.to_lowercase() == q
+                            || (q.len() >= 4 && c.fingerprint().starts_with(&q))
+                    })
+                    .ok_or(e)
+            }
+        }
+    }
+
+    /// Par (contato mútuo ou co-membro) cujo dispositivo é `id`.
+    async fn peer_by_endpoint(&self, id: &EndpointId) -> Option<Contact> {
+        if let Some(c) = self.book().mutual_by_endpoint(id) {
+            return Some(c.clone());
+        }
+        self.co_members()
+            .await
+            .ok()?
+            .into_iter()
+            .find(|c| &c.node_addr.id == id)
+    }
 }
 
 /// Núcleo do Enxame. Barato de clonar.
@@ -445,7 +502,7 @@ impl Enxame {
 
     /// Sincroniza e troca carry com um contato mútuo agora (útil em testes e na CLI).
     pub async fn carry_now(&self, contact: &str) -> Result<crate::carry::CarryStats> {
-        let c = self.inner.book().resolve(contact)?.clone();
+        let c = self.inner.resolve_peer(contact).await?;
         if !c.is_mutual() {
             return Err(Error::Contact(
                 "o contato ainda não aceitou (não é mútuo)".into(),
@@ -773,6 +830,16 @@ async fn send_envelope(
     plain: Vec<u8>,
 ) -> Result<SentMessage> {
     let c = inner.book().resolve(contact)?.clone();
+    send_to_contact(inner, &c, kind, plain).await
+}
+
+/// Como [`send_envelope`], para um contato já resolvido.
+async fn send_to_contact(
+    inner: &Inner,
+    c: &Contact,
+    kind: EnvelopeKind,
+    plain: Vec<u8>,
+) -> Result<SentMessage> {
     if !c.is_mutual() {
         return Err(Error::Contact(
             "o contato ainda não aceitou (não é mútuo)".into(),
@@ -810,7 +877,7 @@ async fn send_envelope(
             store::pending_add(db, &id, &cpk, unix_now_ms())
         })
         .await?;
-    match sync_with(inner, &c).await {
+    match sync_with(inner, c).await {
         Ok(_) => Ok(SentMessage {
             id,
             synced: true,
@@ -820,7 +887,7 @@ async fn send_envelope(
         Err(e) => {
             tracing::debug!("mensagem guardada, par inacessível: {e}");
             // Contato offline: pede a contatos em comum que carreguem até ele voltar.
-            let carriers = carry_flow::offer_to_carriers(inner, &c).await.unwrap_or(0);
+            let carriers = carry_flow::offer_to_carriers(inner, c).await.unwrap_or(0);
             Ok(SentMessage {
                 id,
                 synced: false,
@@ -873,11 +940,31 @@ async fn build_history(
     limit: usize,
 ) -> Result<Vec<Message>> {
     let conv = dm_conversation_id(my_pk, &c.identity_pk);
-    let cpk = c.identity_pk;
+    let names = HashMap::from([
+        (*my_pk, cfg.display_name.clone()),
+        (c.identity_pk, c.display_name.clone()),
+    ]);
+    build_history_conv(store, cfg, conv, &[c.identity_pk], &names, limit).await
+}
+
+/// Histórico de uma conversa (1:1 ou grupo). `owners` são os destinatários cujas pendências
+/// definem se uma mensagem minha já foi entregue; `names` dá o nome de cada autor.
+async fn build_history_conv(
+    store: &Store,
+    cfg: &Config,
+    conv: [u8; 32],
+    owners: &[[u8; 32]],
+    names: &HashMap<[u8; 32], String>,
+    limit: usize,
+) -> Result<Vec<Message>> {
+    let owners = owners.to_vec();
     let (all, pending) = store
         .run(move |db| {
             let all = store::conversation_envelopes(db, &conv)?;
-            let pending: HashSet<[u8; 32]> = store::pending_list(db, &cpk)?.into_iter().collect();
+            let mut pending: HashSet<[u8; 32]> = HashSet::new();
+            for o in &owners {
+                pending.extend(store::pending_list(db, o)?);
+            }
             Ok((all, pending))
         })
         .await?;
@@ -901,11 +988,10 @@ async fn build_history(
         .map(|(s, file)| Message {
             id: s.envelope.id,
             from_me: s.outgoing,
-            author_name: if s.outgoing {
-                cfg.display_name.clone()
-            } else {
-                c.display_name.clone()
-            },
+            author_name: names
+                .get(&s.envelope.author)
+                .cloned()
+                .unwrap_or_else(|| fingerprint(&s.envelope.author)),
             hlc: s.envelope.hlc,
             text: match &file {
                 Some(f) => f.describe(),
@@ -1013,8 +1099,22 @@ async fn run_session(
     let me = inner.identity.identity_pk();
     let conv = dm_conversation_id(&me, &c.identity_pk);
     let peer_pk = c.identity_pk;
-    let name = c.display_name.clone();
-    let peer_fp = c.fingerprint();
+    let groups = inner.groups_now().await?;
+    let is_contact = inner
+        .book()
+        .by_identity(&peer_pk)
+        .is_some_and(|x| x.is_mutual());
+    // Conversas em comum: a 1:1 (só com contato) e os grupos que os dois compartilham.
+    let mut conversations = Vec::new();
+    if is_contact {
+        conversations.push(conv);
+    }
+    conversations.extend(shared_groups(&groups, &me, &peer_pk).iter().map(|g| g.id()));
+    let peers = inner.peers().await?;
+    let names: HashMap<[u8; 32], (String, String)> = peers
+        .iter()
+        .map(|p| (p.identity_pk, (p.display_name.clone(), p.fingerprint())))
+        .collect();
     let stored_ids: Mutex<Vec<[u8; 32]>> = Mutex::new(Vec::new());
     let common_in: Mutex<Vec<[u8; 32]>> = Mutex::new(Vec::new());
     let on_stored = |env: &Envelope| {
@@ -1023,12 +1123,18 @@ async fn run_session(
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .push(env.id);
-            inner.emit(Event::MessageReceived {
-                conversation_id: env.conversation_id,
-                id: env.id,
-                from_name: name.clone(),
-                from_fingerprint: peer_fp.clone(),
-            });
+            if env.kind != EnvelopeKind::GroupOp {
+                let (name, fp) = names
+                    .get(&env.author)
+                    .cloned()
+                    .unwrap_or_else(|| (c.display_name.clone(), c.fingerprint()));
+                inner.emit(Event::MessageReceived {
+                    conversation_id: env.conversation_id,
+                    id: env.id,
+                    from_name: name,
+                    from_fingerprint: fp,
+                });
+            }
         }
         inner.clock().observe(env.hlc, unix_now_ms());
     };
@@ -1040,8 +1146,7 @@ async fn run_session(
             .store
             .with(|db| store::reliability_set_role(db, &peer_pk, role, unix_now_ms()));
     };
-    let mutual = inner.mutual_contacts();
-    let common_hashes: Vec<[u8; 32]> = mutual
+    let common_hashes: Vec<[u8; 32]> = peers
         .iter()
         .filter(|x| x.identity_pk != peer_pk)
         .map(|x| common_hash(&conv, &x.identity_pk))
@@ -1054,7 +1159,8 @@ async fn run_session(
         store: &inner.store,
         identity: &inner.identity,
         peer_pk,
-        conversations: vec![conv],
+        conversations,
+        groups: groups.iter().filter(|g| g.active).cloned().collect(),
         max_frame: inner.cfg.max_frame_bytes,
         on_stored: &on_stored,
         max_file_bytes: inner.cfg.max_file_mb.saturating_mul(1024 * 1024),
@@ -1086,12 +1192,12 @@ async fn run_session(
             .await?;
     }
 
-    // Contatos em comum com este par.
+    // Pares em comum com este par.
     let theirs: HashSet<[u8; 32]> =
         std::mem::take(&mut *common_in.lock().unwrap_or_else(|p| p.into_inner()))
             .into_iter()
             .collect();
-    let others: Vec<[u8; 32]> = mutual
+    let others: Vec<[u8; 32]> = peers
         .iter()
         .filter(|x| {
             x.identity_pk != peer_pk && theirs.contains(&common_hash(&conv, &x.identity_pk))
@@ -1102,6 +1208,8 @@ async fn run_session(
         .store
         .run(move |db| store::common_set(db, &peer_pk, &others))
         .await?;
+    // Retratos de grupo que chegaram nesta sessão viram eventos (e abrem rotas para os membros).
+    groups::emit_group_changes(inner, &groups).await;
     Ok(stats)
 }
 
@@ -1175,13 +1283,7 @@ async fn sync_loop(inner: Arc<Inner>) {
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tick.tick().await;
-        let contacts: Vec<Contact> = inner
-            .book()
-            .list()
-            .iter()
-            .filter(|c| c.is_mutual())
-            .cloned()
-            .collect();
+        let contacts: Vec<Contact> = inner.peers().await.unwrap_or_default();
         for c in contacts {
             let Some(guard) = SyncGuard::try_new(&inner, c.identity_pk) else {
                 continue;
@@ -1265,7 +1367,7 @@ async fn accept_loop(inner: Arc<Inner>) {
 
 async fn handle_sync(inner: &Inner, conn: &Connection) -> Result<()> {
     let remote = conn.remote_id();
-    let contact = inner.book().mutual_by_endpoint(&remote).cloned();
+    let contact = inner.peer_by_endpoint(&remote).await;
     let Some(contact) = contact else {
         // Desconhecido ou não mútuo: nenhum tráfego além do pedido de contato (spec 6.2).
         conn.close(CLOSE_CODE_NOT_CONTACT.into(), b"not a mutual contact");

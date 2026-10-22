@@ -39,3 +39,10 @@ conectividade); mensagens, carry e arquivos entram nas fases seguintes.
 | Arquivo gigante para encher o disco | `max_file_mb` na recepção e no envio; carrier recusa acima de `prefetch_max_mb` e da quota; download cortado se passa do tamanho declarado | O destinatário escolhe baixar; o espaço do próprio blob replicado conta na quota |
 | Contato usa o nó como CDN | Papel e budget (GB/mês e kbps) valem para o que não é do próprio dono; limite de banda por pedaço | Arquivos que eu mesmo enviei não contam no budget (mas passam pelo limite de banda) |
 | Sondagem revela o interesse num arquivo | Só contatos mútuos recebem a sondagem | Cada contato online vê que você buscou aquele hash |
+| Estranho se declara dono de um grupo | `group_id` = hash de `(criador, nonce)`; retrato só vale se o autor do envelope é o `creator`; só entra pelo 1:1 do criador, que é contato mútuo | — |
+| Membro tenta mudar a lista de membros | Só o criador emite retratos; retrato de outro autor é descartado | O criador é um ponto único de confiança: se for malicioso, controla quem entra |
+| Removido continua lendo | Mensagens novas são seladas só para os membros do retrato novo | Até cada membro receber o retrato novo, ele ainda sela para o removido; o que ele já recebeu continua legível (sem forward secrecy) |
+| Mensagem de quem não é membro | Autor tem de constar no retrato ativo (sincronização e carry) | Mensagem legítima de alguém removido que chega depois da remoção é descartada |
+| Exposição de IP entre membros do grupo | `Event::GroupJoined` lista os membros que não são contatos; a CLI avisa | Quem entra num grupo passa a ser alcançável por todos os membros (spec 7.2) |
+| Membro novo lê o passado | Mensagens antigas foram seladas só para os membros de então; não há re-cifragem | — |
+| Flood de membros em carry | Mesmos limites de quota por ofertante, total por papel e TTL do carry 1:1 | Membro de grupo que não é contato pode ofertar carry só de mensagens de grupo |

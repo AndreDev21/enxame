@@ -12,6 +12,7 @@ mod error;
 mod event;
 mod filecrypt;
 mod files;
+mod groups;
 mod hlc;
 mod identity;
 mod keystore;
@@ -31,6 +32,7 @@ pub use crypto::{dm_conversation_id, Envelope, EnvelopeKind, Recipient, SealedKe
 pub use error::{Error, Result};
 pub use event::Event;
 pub use files::{guess_mime, human_size, sanitize_name, FileRef};
+pub use groups::{GROUP_VERSION, MAX_GROUP_MEMBERS, MAX_GROUP_NAME};
 pub use hlc::{Hlc, HlcClock};
 pub use identity::{fingerprint, unix_now, DeviceCert, Identity, InviteTicket};
 #[cfg(feature = "os-keyring")]
@@ -39,8 +41,8 @@ pub use keystore::{open_keystore, FileKeyStore, KeyStore};
 pub use net::{NatKind, NatReport, PathKind, PathMetrics};
 pub use node::{
     list_contacts, read_history, AddOutcome, ContributionSummary, DiagReport, Downloaded, Enxame,
-    FileEntry, Message, MessageFile, PeerDiag, PendingRequest, PrefetchedBlob, SentFile,
-    SentMessage, StartOptions, DEFAULT_DIRECT_WAIT,
+    FileEntry, GroupInfo, GroupMemberInfo, Message, MessageFile, PeerDiag, PendingRequest,
+    PrefetchedBlob, SentFile, SentGroupMessage, SentMessage, StartOptions, DEFAULT_DIRECT_WAIT,
 };
 pub use proto::{ALPN_CONTACT, ALPN_SYNC};
 pub use role::Role;

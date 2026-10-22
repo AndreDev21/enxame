@@ -40,6 +40,8 @@ async fn run_carry(
     let now = unix_now_ms();
     let _ = inner.store.run(move |db| store::expire(db, now)).await;
     let contacts = inner.mutual_contacts();
+    let co_members = inner.co_members().await?;
+    let groups_before = inner.groups_now().await?;
     let limiter = inner.limiter();
     let tick = || inner.clock().tick(unix_now_ms());
     let on_received = |author: &Contact, env: &Envelope| {
@@ -62,6 +64,8 @@ async fn run_carry(
         identity: &inner.identity,
         peer: c,
         contacts: &contacts,
+        co_members: &co_members,
+        groups: groups_before.iter().filter(|g| g.active).cloned().collect(),
         limits: CarryLimits::for_role(inner.role(), &inner.cfg.budget),
         max_frame: inner.cfg.max_frame_bytes,
         limiter: limiter.as_ref(),
@@ -72,7 +76,9 @@ async fn run_carry(
         on_blob_offer: &on_blob_offer,
         offers,
     };
-    session.run(recv, send).await
+    let stats = session.run(recv, send).await?;
+    super::groups::emit_group_changes(inner, &groups_before).await;
+    Ok(stats)
 }
 
 /// Disca o contato em `enxame/carry/1` e troca entregas, recibos e ofertas.
@@ -99,7 +105,7 @@ pub(super) async fn carry_with(
 /// Lado que aceita a conexão `enxame/carry/1`. Só contatos mútuos.
 pub(super) async fn handle_carry(inner: &Inner, conn: &Connection) -> Result<()> {
     let remote = conn.remote_id();
-    let contact = inner.book().mutual_by_endpoint(&remote).cloned();
+    let contact = inner.peer_by_endpoint(&remote).await;
     let Some(contact) = contact else {
         conn.close(CLOSE_CODE_NOT_CONTACT.into(), b"not a mutual contact");
         return Ok(());
@@ -176,7 +182,7 @@ pub(super) async fn offer_to_carriers(inner: &Inner, recipient: &Contact) -> Res
             Ok((common, offered))
         })
         .await?;
-    let mine = inner.mutual_contacts();
+    let mine = inner.peers().await?;
     let mut candidates: Vec<(Contact, u8, f64)> = Vec::new();
     for c in mine
         .into_iter()

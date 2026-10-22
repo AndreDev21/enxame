@@ -130,6 +130,43 @@ const MIGRATIONS: &[&str] = &[
         expires_at INTEGER
      ) WITHOUT ROWID;
      CREATE INDEX blobs_by_expiry ON blobs(expires_at) WHERE expires_at IS NOT NULL;",
+    // v4: grupos. Guarda só o retrato mais novo; `active` = eu consto nele.
+    "CREATE TABLE groups (
+        group_id   BLOB PRIMARY KEY,
+        creator    BLOB NOT NULL,
+        seq        INTEGER NOT NULL,
+        active     INTEGER NOT NULL,
+        snapshot   BLOB NOT NULL,
+        updated_at INTEGER NOT NULL
+     ) WITHOUT ROWID;",
+    // v5: uma mensagem de grupo tem vários destinatários pendentes e pode ser carregada para
+    // vários: a chave passa a ser (envelope, destinatário).
+    "CREATE TABLE pending_delivery_v5 (
+        envelope_id BLOB NOT NULL,
+        recipient   BLOB NOT NULL,
+        created_at  INTEGER NOT NULL,
+        PRIMARY KEY (envelope_id, recipient)
+     ) WITHOUT ROWID;
+     INSERT INTO pending_delivery_v5 SELECT envelope_id, recipient, created_at FROM pending_delivery;
+     DROP TABLE pending_delivery;
+     ALTER TABLE pending_delivery_v5 RENAME TO pending_delivery;
+     CREATE INDEX pending_by_recipient ON pending_delivery(recipient);
+     CREATE TABLE carry_queue_v5 (
+        envelope_id  BLOB NOT NULL,
+        recipient    BLOB NOT NULL,
+        from_contact BLOB NOT NULL,
+        raw          BLOB NOT NULL,
+        size         INTEGER NOT NULL,
+        accepted_at  INTEGER NOT NULL,
+        expires_at   INTEGER NOT NULL,
+        PRIMARY KEY (envelope_id, recipient)
+     ) WITHOUT ROWID;
+     INSERT INTO carry_queue_v5
+        SELECT envelope_id, recipient, from_contact, raw, size, accepted_at, expires_at FROM carry_queue;
+     DROP TABLE carry_queue;
+     ALTER TABLE carry_queue_v5 RENAME TO carry_queue;
+     CREATE INDEX carry_by_recipient ON carry_queue(recipient);
+     CREATE INDEX carry_by_contact ON carry_queue(from_contact);",
 ];
 
 fn db<E: std::fmt::Display>(e: E) -> Error {
@@ -670,6 +707,19 @@ pub fn carry_insert(
     Ok(n == 1)
 }
 
+/// Guardo `id` para este destinatário?
+pub fn carry_has_for(conn: &Connection, id: &[u8; 32], recipient: &[u8; 32]) -> Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM carry_queue WHERE envelope_id = ?1 AND recipient = ?2",
+        params![id.as_slice(), recipient.as_slice()],
+        |_| Ok(()),
+    )
+    .optional()
+    .map(|o| o.is_some())
+    .map_err(db)
+}
+
+#[cfg(test)]
 pub fn carry_has(conn: &Connection, id: &[u8; 32]) -> Result<bool> {
     conn.query_row(
         "SELECT 1 FROM carry_queue WHERE envelope_id = ?1",
@@ -1062,6 +1112,77 @@ pub fn filerefs_in_conversation(conn: &Connection, conv: &[u8; 32]) -> Result<Ve
 // ------------------------------------------------------------ contribuição
 
 /// Soma ao que servi no mês (`AAAAMM`) para o contato.
+/// Grava o retrato se for mais novo (`seq` maior) que o guardado. Devolve `true` se aplicou.
+pub fn group_put(
+    conn: &Connection,
+    snap: &crate::groups::GroupSnapshot,
+    me: &[u8; 32],
+    now_ms: u64,
+) -> Result<bool> {
+    let id = snap.id();
+    let current: Option<i64> = conn
+        .query_row(
+            "SELECT seq FROM groups WHERE group_id = ?1",
+            [&id[..]],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(db)?;
+    if current.is_some_and(|c| c >= snap.seq as i64) {
+        return Ok(false);
+    }
+    conn.execute(
+        "INSERT OR REPLACE INTO groups (group_id, creator, seq, active, snapshot, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            &id[..],
+            &snap.creator[..],
+            snap.seq as i64,
+            snap.has(me),
+            snap.encode()?,
+            now_ms as i64
+        ],
+    )
+    .map_err(db)?;
+    Ok(true)
+}
+
+pub fn group_exists(conn: &Connection, id: &[u8; 32]) -> Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM groups WHERE group_id = ?1",
+        [&id[..]],
+        |_| Ok(()),
+    )
+    .optional()
+    .map(|o| o.is_some())
+    .map_err(db)
+}
+
+pub fn groups_load(conn: &Connection) -> Result<Vec<crate::groups::StoredGroup>> {
+    let mut stmt = conn
+        .prepare("SELECT snapshot, active, updated_at FROM groups ORDER BY updated_at, group_id")
+        .map_err(db)?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, Vec<u8>>(0)?,
+                r.get::<_, bool>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(db)?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (blob, active, updated_at) = row.map_err(db)?;
+        out.push(crate::groups::StoredGroup {
+            snapshot: crate::groups::GroupSnapshot::decode(&blob)?,
+            active,
+            updated_at: updated_at as u64,
+        });
+    }
+    Ok(out)
+}
+
 pub fn contribution_add(
     conn: &Connection,
     month: u32,
@@ -1160,6 +1281,57 @@ mod tests {
         let s = Store::open(&path).unwrap();
         assert_eq!(s.schema_version().unwrap(), MIGRATIONS.len());
         drop(s);
+        let s = Store::open(&path).unwrap();
+        assert_eq!(s.schema_version().unwrap(), MIGRATIONS.len());
+    }
+
+    /// Um banco da Fase 4 (v3) com mensagens pendentes e cópias de carry migra sem perder nada.
+    #[test]
+    fn v3_database_migrates_to_per_recipient_keys_keeping_its_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db.sqlite");
+        {
+            let mut conn = Connection::open(&path).unwrap();
+            for (i, sql) in MIGRATIONS.iter().take(3).enumerate() {
+                conn.execute_batch(sql).unwrap();
+                conn.pragma_update(None, "user_version", (i + 1) as i64)
+                    .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO pending_delivery (envelope_id, recipient, created_at) VALUES (x'01', x'0a', 5)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO carry_queue (envelope_id, recipient, from_contact, raw, size, accepted_at, expires_at)
+                 VALUES (x'02', x'0b', x'0c', x'dd', 7, 1, 99)",
+                [],
+            )
+            .unwrap();
+            migrate(&mut conn).unwrap();
+            assert_eq!(
+                conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+                    .unwrap() as usize,
+                MIGRATIONS.len()
+            );
+            let pending: i64 = conn
+                .query_row("SELECT COUNT(*) FROM pending_delivery", [], |r| r.get(0))
+                .unwrap();
+            let carried: i64 = conn
+                .query_row(
+                    "SELECT size FROM carry_queue WHERE recipient = x'0b'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!((pending, carried), (1, 7));
+            // Agora o mesmo envelope pode estar pendente para dois destinatários.
+            conn.execute(
+                "INSERT INTO pending_delivery (envelope_id, recipient, created_at) VALUES (x'01', x'0e', 6)",
+                [],
+            )
+            .unwrap();
+        }
         let s = Store::open(&path).unwrap();
         assert_eq!(s.schema_version().unwrap(), MIGRATIONS.len());
     }

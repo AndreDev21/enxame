@@ -99,12 +99,25 @@ cargo run -p enxame-cli -- --help
   `blobs` (3 nós iroh). O teste de 1 GB é `#[ignore]`: `cargo test -p enxame-core --test files
   -- --ignored`.
 
+## Fase 5 (grupos)
+
+- Módulos: `groups` (retrato assinado `GroupSnapshot`, validação, pares por grupo) e
+  `node/groups.rs` (criar, add/remover/renomear, enviar, sincronizar, histórico). Decisões no
+  ADR 0009; wire em `docs/protocol.md`.
+- Só o criador emite retratos (estado completo, `seq` crescente); viajam por mensagem 1:1 `GroupOp`.
+  Mensagens do grupo: `conversation_id = group_id`, chave de conteúdo selada para cada membro.
+  Co-membros que não são contatos viram **pares de rede** (`Inner::peers`) para sincronização e carry.
+- CLI (no `chat`): `/grupos`, `/grupo criar|add|remover|nome|sync|historico`, `#grupo texto`.
+  Eventos `GroupJoined` (com a lista de expostos ao IP), `GroupUpdated`, `GroupRemoved`.
+- Banco v4 (`groups`) e v5 (`pending_delivery`/`carry_queue` por `(envelope, destinatário)`).
+- Testes: `cargo test -p enxame-core --test groups`.
+
 ## Estado
 
 - **Leia [`docs/STATUS.md`](docs/STATUS.md) primeiro**: onde paramos, o que falta e a ordem de amanhã.
-- Fases 0 a 4 implementadas; a 3 foi validada em campo com três máquinas (`docs/reports/fase3-carry.md`);
+- Fases 0 a 5 implementadas (a 5 aguarda o teste de campo: `docs/roteiros/fase5-grupos.md`); a 3 foi validada em campo com três máquinas (`docs/reports/fase3-carry.md`);
   aguarda revisão. Fases 0–2 revisadas. A Fase 1 foi validada em campo (Linux ↔ Linux,
   redes diferentes); Windows e 4G seguem sem teste. A Fase 2 foi validada em campo com duas
-  máquinas remotas (`docs/reports/fase2-mensagens.md`); falta Windows e 4G. Próxima: Fase 5 (grupos). A Fase 4 passou nos testes locais (inclui 1 GiB em 2 fontes) e foi validada em campo
+  máquinas remotas (`docs/reports/fase2-mensagens.md`); falta Windows e 4G. Próxima: Fase 6. A Fase 4 passou nos testes locais (inclui 1 GiB em 2 fontes) e foi validada em campo
   (multi-fonte, retomada, remetente offline; Linux e Windows no 4G; `docs/reports/fase4-arquivos.md`).
 - Nome do projeto e `repository` no `Cargo.toml` são provisórios.

@@ -14,6 +14,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
     crypto::{Envelope, EnvelopeKind, MAX_TEXT_BYTES},
+    groups::{GroupSnapshot, StoredGroup},
     hlc::Hlc,
     identity::{unix_now_ms, Identity},
     proto::{read_frame, write_frame, SyncMsg},
@@ -59,6 +60,9 @@ fn check_content(kind: EnvelopeKind, plain: &[u8], max_file_bytes: u64) -> Resul
         EnvelopeKind::FileRef => {
             crate::files::FileRef::decode(plain, max_file_bytes)?;
         }
+        EnvelopeKind::GroupOp => {
+            GroupSnapshot::decode(plain)?;
+        }
         _ => {
             return Err(Error::Protocol(
                 "tipo de envelope ainda não suportado".into(),
@@ -68,15 +72,44 @@ fn check_content(kind: EnvelopeKind, plain: &[u8], max_file_bytes: u64) -> Resul
     Ok(())
 }
 
+/// Aplica o retrato de grupo de um `GroupOp` recebido de `author` (ADR 0009). Só o criador emite
+/// retratos; um retrato que não me inclui só vale para um grupo que eu já conheço (é a remoção).
+pub async fn apply_group_op(
+    store: &Store,
+    me: &[u8; 32],
+    author: &[u8; 32],
+    plain: &[u8],
+) -> Result<bool> {
+    let snap = GroupSnapshot::decode(plain)?;
+    if snap.creator != *author {
+        return Err(Error::Protocol(
+            "só o criador emite retratos de grupo".into(),
+        ));
+    }
+    let (me, id) = (*me, snap.id());
+    store
+        .run(move |c| {
+            if !snap.has(&me) && !store::group_exists(c, &id)? {
+                return Err(Error::Protocol(
+                    "retrato de um grupo desconhecido que não me inclui".into(),
+                ));
+            }
+            store::group_put(c, &snap, &me, unix_now_ms())
+        })
+        .await
+}
+
 /// Valida, decifra e guarda um envelope vindo do par. Qualquer falha descarta o envelope.
 ///
-/// Ordem: estrutura/id/assinatura → conversa permitida → autor é o par ou eu → HLC não está no
-/// futuro → tipo suportado → deduplicação → decifra → texto válido → grava.
+/// Ordem: estrutura/id/assinatura → conversa permitida → autor permitido (na conversa 1:1, o par
+/// ou eu; num grupo, qualquer membro do retrato atual) → HLC não está no futuro → tipo suportado
+/// → deduplicação → decifra → conteúdo válido → (retrato de grupo: aplica) → grava.
 pub async fn ingest(
     store: &Store,
     identity: &Identity,
     peer_pk: &[u8; 32],
     allowed: &[[u8; 32]],
+    groups: &[StoredGroup],
     max_file_bytes: u64,
     env: Envelope,
 ) -> Result<Ingest> {
@@ -86,17 +119,38 @@ pub async fn ingest(
             "conversa não permitida com este par".into(),
         ));
     }
-    if env.author != *peer_pk && env.author != identity.identity_pk() {
-        return Err(Error::Protocol("autor não é o par nem eu".into()));
+    let me = identity.identity_pk();
+    let group = groups
+        .iter()
+        .find(|g| g.active && g.id() == env.conversation_id);
+    match group {
+        Some(g) => {
+            if !g.snapshot.has(&env.author) {
+                return Err(Error::Protocol("autor não é membro do grupo".into()));
+            }
+            if !matches!(env.kind, EnvelopeKind::Text | EnvelopeKind::FileRef) {
+                return Err(Error::Protocol(
+                    "tipo de envelope não permitido em grupo".into(),
+                ));
+            }
+        }
+        None => {
+            if env.author != *peer_pk && env.author != me {
+                return Err(Error::Protocol("autor não é o par nem eu".into()));
+            }
+            if !matches!(
+                env.kind,
+                EnvelopeKind::Text | EnvelopeKind::FileRef | EnvelopeKind::GroupOp
+            ) {
+                return Err(Error::Protocol(
+                    "tipo de envelope ainda não suportado".into(),
+                ));
+            }
+        }
     }
     let now = unix_now_ms();
     if env.hlc.ms > now.saturating_add(MAX_FUTURE_MS) {
         return Err(Error::Protocol("HLC no futuro".into()));
-    }
-    if !matches!(env.kind, EnvelopeKind::Text | EnvelopeKind::FileRef) {
-        return Err(Error::Protocol(
-            "tipo de envelope ainda não suportado".into(),
-        ));
     }
     let id = env.id;
     if store.run(move |c| store::envelope_exists(c, &id)).await? {
@@ -104,7 +158,10 @@ pub async fn ingest(
     }
     let plain = env.open(identity)?;
     check_content(env.kind, &plain, max_file_bytes)?;
-    let outgoing = env.author == identity.identity_pk();
+    let outgoing = env.author == me;
+    if env.kind == EnvelopeKind::GroupOp && !outgoing {
+        apply_group_op(store, &me, &env.author, &plain).await?;
+    }
     let inserted = store
         .run(move |c| store::envelope_insert(c, &env, Some(&plain), outgoing, now))
         .await?;
@@ -116,41 +173,70 @@ pub async fn ingest(
 }
 
 /// Valida, decifra e guarda um envelope **de terceiro** que um carrier entregou. Diferente de
-/// [`ingest`], o autor não é quem entrega: basta ser um contato mútuo meu. Devolve a identidade
-/// do autor para o recibo.
+/// [`ingest`], o autor não é quem entrega: na conversa 1:1 basta ser um contato mútuo meu; num
+/// grupo, basta ser membro do retrato atual (e eu também). Devolve a identidade do autor para o
+/// recibo.
 pub async fn ingest_carried(
     store: &Store,
     identity: &Identity,
     contacts: &[crate::contacts::Contact],
+    groups: &[StoredGroup],
     max_file_bytes: u64,
     env: Envelope,
 ) -> Result<(Ingest, [u8; 32])> {
     env.verify()?;
     let me = identity.identity_pk();
-    let author = contacts
+    let group = groups
         .iter()
-        .find(|c| c.is_mutual() && c.identity_pk == env.author && env.author != me)
-        .ok_or_else(|| Error::Protocol("autor do envelope carregado não é meu contato".into()))?;
-    if env.conversation_id != crate::crypto::dm_conversation_id(&me, &author.identity_pk) {
-        return Err(Error::Protocol(
-            "conversa não é a nossa conversa 1:1".into(),
-        ));
+        .find(|g| g.active && g.id() == env.conversation_id);
+    match group {
+        Some(g) => {
+            if env.author == me || !g.snapshot.has(&env.author) || !g.snapshot.has(&me) {
+                return Err(Error::Protocol(
+                    "autor carregado não é membro do grupo".into(),
+                ));
+            }
+            if !matches!(env.kind, EnvelopeKind::Text | EnvelopeKind::FileRef) {
+                return Err(Error::Protocol(
+                    "tipo de envelope não permitido em grupo".into(),
+                ));
+            }
+        }
+        None => {
+            let author = contacts
+                .iter()
+                .find(|c| c.is_mutual() && c.identity_pk == env.author && env.author != me)
+                .ok_or_else(|| {
+                    Error::Protocol("autor do envelope carregado não é meu contato".into())
+                })?;
+            if env.conversation_id != crate::crypto::dm_conversation_id(&me, &author.identity_pk) {
+                return Err(Error::Protocol(
+                    "conversa não é a nossa conversa 1:1".into(),
+                ));
+            }
+            if !matches!(
+                env.kind,
+                EnvelopeKind::Text | EnvelopeKind::FileRef | EnvelopeKind::GroupOp
+            ) {
+                return Err(Error::Protocol(
+                    "tipo de envelope ainda não suportado".into(),
+                ));
+            }
+        }
     }
     let now = unix_now_ms();
     if env.hlc.ms > now.saturating_add(MAX_FUTURE_MS) {
         return Err(Error::Protocol("HLC no futuro".into()));
     }
-    if !matches!(env.kind, EnvelopeKind::Text | EnvelopeKind::FileRef) {
-        return Err(Error::Protocol(
-            "tipo de envelope ainda não suportado".into(),
-        ));
-    }
-    let (id, pk) = (env.id, author.identity_pk);
+    let (id, pk) = (env.id, env.author);
     if store.run(move |c| store::envelope_exists(c, &id)).await? {
         return Ok((Ingest::Duplicate, pk));
     }
     let plain = env.open(identity)?;
     check_content(env.kind, &plain, max_file_bytes)?;
+    if env.kind == EnvelopeKind::GroupOp {
+        apply_group_op(store, &me, &env.author, &plain).await?;
+    }
     let inserted = store
         .run(move |c| store::envelope_insert(c, &env, Some(&plain), false, now))
         .await?;
@@ -169,8 +255,10 @@ pub struct Session<'a> {
     pub store: &'a Store,
     pub identity: &'a Identity,
     pub peer_pk: [u8; 32],
-    /// Conversas em comum (na Fase 2, só a DM; grupos entram na Fase 5).
+    /// Conversas em comum: a 1:1 (se o par for contato) mais os grupos que os dois compartilham.
     pub conversations: Vec<[u8; 32]>,
+    /// Grupos ativos (para autorizar autores de mensagens de grupo).
+    pub groups: Vec<StoredGroup>,
     pub max_frame: usize,
     /// Chamado para cada envelope novo guardado.
     pub on_stored: &'a (dyn Fn(&Envelope) + Send + Sync),
@@ -275,6 +363,7 @@ impl Session<'_> {
         }
 
         let mut heads_received: HashSet<[u8; 32]> = HashSet::new();
+        let mut unknown_answered: HashSet<[u8; 32]> = HashSet::new();
         let mut outstanding: usize = 0;
         let mut wanted: HashSet<[u8; 32]> = HashSet::new();
         let (mut bye_sent, mut bye_recv) = (false, false);
@@ -316,7 +405,28 @@ impl Session<'_> {
                     digest: theirs,
                     ..
                 } => {
-                    if !self.conversations.contains(&conv) || !heads_received.insert(conv) {
+                    if !self.conversations.contains(&conv) {
+                        // O par está adiantado (ex.: um grupo que ainda não conheço): responde
+                        // vazio para ele fechar a conta de `Heads` e não esperar até o timeout.
+                        if unknown_answered.len() < MAX_HEADS && unknown_answered.insert(conv) {
+                            self.send(
+                                w,
+                                &SyncMsg::Heads {
+                                    conversation_id: conv,
+                                    heads: vec![],
+                                    count: 0,
+                                    hlc_max: Hlc::ZERO,
+                                    digest: self
+                                        .store
+                                        .run(move |c| store::conversation_digest(c, &conv))
+                                        .await?,
+                                },
+                            )
+                            .await?;
+                        }
+                        continue;
+                    }
+                    if !heads_received.insert(conv) {
                         continue;
                     }
                     // Ter a ponta do par não basta (podem faltar ancestrais): compara o resumo
@@ -443,6 +553,7 @@ impl Session<'_> {
                             self.identity,
                             &self.peer_pk,
                             &self.conversations,
+                            &self.groups,
                             self.max_file_bytes,
                             env,
                         )
@@ -580,6 +691,7 @@ mod tests {
             identity: &a.id,
             peer_pk: b.id.identity_pk(),
             conversations: vec![conv(a, b)],
+            groups: vec![],
             max_frame: 1 << 20,
             on_stored: &nop,
             max_file_bytes: 1 << 30,
@@ -593,6 +705,7 @@ mod tests {
             identity: &b.id,
             peer_pk: a.id.identity_pk(),
             conversations: vec![conv(a, b)],
+            groups: vec![],
             max_frame: 1 << 20,
             on_stored: &nop,
             max_file_bytes: 1 << 30,
@@ -749,6 +862,7 @@ mod tests {
             identity: &victim.id,
             peer_pk: peer.id.identity_pk(),
             conversations: vec![c],
+            groups: vec![],
             max_frame: 1 << 20,
             on_stored: &nop,
             max_file_bytes: 1 << 30,
@@ -885,6 +999,7 @@ mod tests {
             identity: &n.id,
             peer_pk: peer.id.identity_pk(),
             conversations: vec![conv(n, peer)],
+            groups: vec![],
             max_frame: 1 << 20,
             on_stored: &NOP,
             max_file_bytes: 1 << 30,

@@ -133,9 +133,10 @@ pub(super) async fn provider_policy(inner: Arc<Inner>, mut rx: mpsc::Receiver<Pr
     while let Some(msg) = rx.recv().await {
         match msg {
             ProviderMessage::ClientConnected(m) => {
-                let contact = m
-                    .endpoint_id
-                    .and_then(|id| inner.book().mutual_by_endpoint(&id).map(|c| c.identity_pk));
+                let contact = match m.endpoint_id {
+                    Some(id) => inner.peer_by_endpoint(&id).await.map(|c| c.identity_pk),
+                    None => None,
+                };
                 let verdict = match contact {
                     Some(pk) => {
                         conns.insert(m.connection_id, pk);
@@ -415,7 +416,8 @@ pub struct Downloaded {
 /// downloader não perder tempo tentando cada segmento neles).
 async fn reachable_providers(inner: &Inner) -> Vec<EndpointId> {
     let timeout = Duration::from_secs(inner.cfg.dial_timeout_secs);
-    let probes = inner.mutual_contacts().into_iter().map(|c| {
+    let peers = inner.peers().await.unwrap_or_default();
+    let probes = peers.into_iter().map(|c| {
         let ep = inner.endpoint.clone();
         async move {
             let conn =
@@ -438,7 +440,7 @@ async fn reachable_providers(inner: &Inner) -> Vec<EndpointId> {
 }
 
 /// Roda os futuros juntos e devolve os resultados na ordem.
-async fn futures_join_all<F: std::future::Future>(
+pub(super) async fn futures_join_all<F: std::future::Future>(
     futs: impl IntoIterator<Item = F>,
 ) -> Vec<F::Output> {
     let mut set = n0_future::FuturesOrdered::new();

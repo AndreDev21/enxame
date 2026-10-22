@@ -33,4 +33,20 @@ pub enum Event {
         display_name: String,
         fingerprint: String,
     },
+    /// Fui incluído num grupo. `exposed` lista os membros que não são meus contatos: eles
+    /// passam a conhecer meu IP (e eu o deles). A UI deve avisar (spec 7.2, ADR 0009).
+    GroupJoined {
+        group_id: [u8; 32],
+        name: String,
+        creator_name: String,
+        exposed: Vec<String>,
+    },
+    /// O criador mudou o grupo (membros ou nome).
+    GroupUpdated {
+        group_id: [u8; 32],
+        name: String,
+        seq: u64,
+    },
+    /// Fui removido do grupo.
+    GroupRemoved { group_id: [u8; 32], name: String },
 }
