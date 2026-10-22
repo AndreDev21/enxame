@@ -62,6 +62,7 @@ Quanto mais contatos ativos, melhor a entrega offline e a distribuição de arqu
 - **Store-and-forward** via contatos online (entrega offline).
 - Transferência de arquivos cifrados, com **seeding multi-fonte** entre contatos.
 - Descoberta em rede local (mDNS) para conexão direta na mesma LAN.
+- **Chamadas 1:1 de áudio e vídeo e transmissão de tela do computador** (Fase 6, bloco de chamadas), com sinalização E2E pelo próprio Enxame.
 - Clientes: **CLI** (Linux), **nó headless** (Docker), **app Flutter desktop** (Linux primeiro, depois Windows; macOS best-effort).
 - App desktop roda na **bandeja do sistema** e continua contribuindo com a rede quando a janela é fechada (opt-out, com limites).
 - Painel de contribuição (contador de MB/contatos ajudados) e limites configuráveis.
@@ -72,13 +73,13 @@ Quanto mais contatos ativos, melhor a entrega offline e a distribuição de arqu
 - Forward secrecy / MLS para grupos (fase pós-MVP; deixar o envelope preparado).
 - Multi-dispositivo por identidade (estrutura preparada, não implementada).
 - Comunidades grandes estilo "servidor do Discord", canais, roles, moderação.
-- Calls em grupo, SFU, screen share.
+- Chamadas **em grupo** e SFU (chamadas 1:1 e transmissão de tela 1:1 estão **dentro**, na Fase 6).
 - **Mobile (Android e iOS)**: roadmap na seção 17.
 - Push notifications.
 - Incentivos além do contador (nada de token/cripto, nunca).
 - Wi-Fi Direct / Bluetooth mesh.
 
-Call 1:1 é **stretch** (Fase 7) e só entra se as fases anteriores estiverem estáveis.
+Chamadas 1:1 (áudio, vídeo e tela) entram na Fase 6, depois do app básico. Chamadas em grupo, TURN próprio e transmissão de tela para vários espectadores ficam na Fase 7 (stretch).
 
 ---
 
@@ -424,19 +425,27 @@ Contabilidade: cada byte servido para terceiros incrementa `contribution_stats` 
 - Telas: onboarding (gera identidade), contatos (ticket como link copiável + QR exibido), lista de conversas, chat, envio de arquivo com drag-and-drop, painel de contribuição (papel atual, MB servidos, contatos ajudados, limites, toggle de modo jogo), diagnóstico.
 - Bandeja do sistema: fechar a janela mantém o nó ativo; menu da bandeja com status, modo jogo, pausar contribuição e sair.
 - Autostart opcional com o sistema (desligado por padrão).
+- **Chamadas 1:1 (bloco de chamadas):** áudio, vídeo e **transmissão de tela do computador** (o item de maior valor do bloco: compartilhar a tela inteira ou uma janela, com ou sem áudio do sistema, durante a chamada ou como chamada própria "só tela").
+  - Mídia via `flutter_webrtc` (WebRTC: cripto DTLS-SRTP, controle de congestionamento e codecs prontos; nada de cripto própria). Sinalização (oferta/resposta SDP e candidatos ICE) em envelopes `CallSignal` E2E sobre a conexão iroh, pela conversa 1:1; só contatos mútuos podem chamar; o receptor aceita ou recusa, e há toque/aviso de chamada.
+  - Descoberta de caminho: ICE com STUN público na primeira versão; relay de mídia/TURN fica em ADR (decisão aberta 5). Documentar o comportamento com NAT simétrico e com a rede móvel (CGNAT), onde a mídia direta pode não abrir sem TURN.
+  - Captura de tela: no Linux, Wayland via portal `xdg-desktop-portal` + PipeWire (testar em Hyprland, que precisa do `xdg-desktop-portal-hyprland`) e X11 (BSPWM); no Windows, captura nativa do `flutter_webrtc`. Seletor de tela/janela, indicador visível de "você está transmitindo" e botão de parar sempre acessível.
+  - Qualidade adaptativa (resolução/taxa de quadros pela banda disponível); a tela prioriza nitidez em vez de taxa de quadros.
+  - Privacidade: câmera, microfone e tela só são capturados depois de aceitar a chamada e de uma ação explícita do usuário; o app mostra quando cada um está ativo.
 - Discovery mDNS habilitado.
 - Ordem: Linux (X11 e Wayland; testar em Hyprland e BSPWM) → Windows. macOS só se não exigir trabalho específico relevante.
 - Empacotamento: AppImage (Linux) e instalador MSIX ou Inno Setup (Windows). Registrar a escolha em ADR.
 - **Setup do usuário básico (princípio da seção 1.1):**
   - instalação sem terminal (AppImage no Linux; instalador no Windows) e primeira execução sem configuração: gera a identidade, escolhe sozinho relay (os públicos), DNS e pasta de downloads;
-  - **DNS automático:** o app testa o resolvedor do sistema e, se ele não responder (EDNS descartado), passa sozinho a servidores públicos (`dns_servers`), sem o usuário saber; o `diag` mostra o motivo quando isso acontece;
+  - **DNS automático (feito no núcleo, ADR 0010):** o app testa o resolvedor do sistema e, se ele não responder (EDNS descartado), passa sozinho a servidores públicos (`dns_servers`), sem o usuário saber; o `diag` mostra o motivo quando isso acontece;
   - "usar o meu relay / meu servidor" fica numa tela de configurações avançadas (URL do relay, CA própria), nunca no caminho do onboarding;
   - binários prontos para baixar (GitHub Releases, gerados pela CI) para quem ainda usa a linha de comando.
+- **Aceite das chamadas:** duas máquinas na mesma rede e em redes diferentes (cone ↔ cone) fazem chamada de **áudio**, de **vídeo** e **transmissão de tela** 1:1 de ponta a ponta com sinalização E2E; a tela do remetente aparece legível no receptor (texto de terminal legível, taxa de quadros útil para rolar e digitar), com parar/retomar; recusar, cancelar e perder a rede encerram a chamada sem travar o app; Linux (X11 e Wayland) e Windows capturam a tela. Com NAT simétrico ou 4G, o comportamento (falha clara ou uso de TURN) está documentado.
 - **Aceite:** uma pessoa não técnica instala o app e troca mensagens e arquivos com um contato **sem abrir terminal nem definir variável alguma**, inclusive atrás de um roteador que descarta EDNS; Linux ↔ Windows trocam mensagens e arquivos em redes diferentes; com a janela fechada, o app na bandeja continua atuando como carrier; o papel muda ao ligar o modo jogo ou desconectar o carregador do notebook; duas máquinas na mesma LAN conectam direto sem relay.
 
-### Fase 7 — (Stretch) Call 1:1
-- Mídia via `flutter_webrtc`; sinalização (SDP/ICE) transportada como envelopes `CallSignal` sobre a conexão iroh já existente.
-- **Aceite:** chamada de voz e vídeo 1:1 entre dois desktops na mesma rede e em redes diferentes com NAT cone. Documentar o comportamento com NAT simétrico (provável falha sem TURN). A solução fica em ADR para pós-MVP.
+### Fase 7 — (Stretch) Chamadas em grupo e TURN
+- Chamadas com mais de dois participantes (malha pequena ou SFU leve) e transmissão de tela para vários espectadores.
+- TURN próprio opcional no `deploy/` (para NAT simétrico e 4G), junto do relay; ou mídia sobre o relay do iroh, conforme o ADR da decisão 5.
+- **Aceite:** chamada com 3 a 4 participantes estável por 30 min; tela compartilhada visível a todos; chamada 1:1 atrás de NAT simétrico completa via TURN.
 
 ---
 
@@ -478,7 +487,7 @@ Contabilidade: cada byte servido para terceiros incrementa `contribution_stats` 
 2. **Licença:** recomendação AGPL-3.0 para o projeto inteiro (impede fork fechado oferecido como serviço, como em Signal e Element). Alternativa: MIT/Apache-2.0 dual no `enxame-core` para maximizar adoção como biblioteca, AGPL no app.
 3. Reconciliação por HLC (MVP) vs RBSR.
 4. Formato de cifragem em streaming de arquivos.
-5. Estratégia para calls com NAT simétrico (TURN próprio vs mídia sobre o relay do iroh).
+5. Estratégia para calls com NAT simétrico (TURN próprio vs mídia sobre o relay do iroh). Na Fase 6 começa com STUN público; relays públicos do iroh limitam a banda (visto em campo, ~1 MB/s), então a mídia **não** deve passar por eles.
 6. Caminho para MLS (`openmls`) e multi-dispositivo.
 7. Empacotamento e distribuição desktop (AppImage/Flatpak/AUR no Linux; MSIX vs Inno Setup no Windows).
 8. **Relay padrão** — decidido no ADR 0008: relays públicos do iroh por padrão; relay próprio opcional. Reabrir se o iroh/n0 mudar as condições dos relays públicos, ou se o projeto decidir operar um relay oficial.

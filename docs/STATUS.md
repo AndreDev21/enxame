@@ -35,7 +35,16 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
    offline), healthcheck `healthy` em ~20 s, uso de ~7 MiB de RAM em repouso, `docker compose config` válido.
    Não testado: relay próprio com Let's Encrypt (precisa de domínio) e grupos via contêiner.
 3. ~~Fase 5 — grupos pequenos~~ **feita e validada em campo** (`reports/fase5-grupos.md`); aguarda revisão.
-4. Próxima: Fase 6 (app Flutter) — leia o princípio abaixo.
+4. **Fase 6 em andamento** (spec 13): blocos
+   - 6.1 DNS automático — **feito** (ADR 0010);
+   - 6.2 ponte `enxame-ffi` (frb 2.13.0) e app Linux básico: onboarding, contatos (ticket/QR), conversas
+     1:1 e de grupo, chat, painel de contribuição, diagnóstico;
+   - 6.3 arquivos (arrastar e soltar), bandeja, modo jogo, autostart;
+   - **6.4 chamadas 1:1: áudio, vídeo e transmissão de tela** (`flutter_webrtc`, sinalização `CallSignal`
+     E2E; captura Wayland/PipeWire e X11; ver spec Fase 6 e decisão 5 sobre TURN);
+   - 6.5 empacotamento (AppImage) e binários pela CI;
+   - 6.6 Windows (build, instalador, campo).
+   Próxima fase depois desta: Fase 7 (chamadas em grupo e TURN, stretch). — leia o princípio abaixo.
 
 ## Princípio de produto (decidido nesta sessão)
 
