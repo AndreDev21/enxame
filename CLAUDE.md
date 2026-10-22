@@ -3,6 +3,13 @@
 Enxame: comunicador P2P friend-to-friend em Rust (iroh). Especificação completa e fases em
 [`enxame-mvp.md`](enxame-mvp.md); leia a seção 0 antes de mexer em qualquer coisa.
 
+## Princípio de produto
+
+- **Setup simples para o usuário básico** (spec 1.1, ADR 0008): sem terminal, Docker, variáveis de
+  ambiente ou relay para configurar. Relay padrão = públicos do iroh; relay/nó próprio é opt-in.
+  Não empurre configuração técnica para o caminho do usuário comum; o DNS com fallback automático
+  é item de aceite da Fase 6.
+
 ## Regras de trabalho
 
 - Uma fase por vez (seção 13 da spec). Ao fim de cada fase: fmt, clippy e test verdes, critérios

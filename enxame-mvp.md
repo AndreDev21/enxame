@@ -45,6 +45,7 @@ Quanto mais contatos ativos, melhor a entrega offline e a distribuição de arqu
 | Bônus, nunca punição | Quem não pode contribuir (4G, bateria) mantém experiência básica completa. |
 | E2E sempre | Carriers e relays só veem ciphertext. |
 | Mesmo core em todo lugar | CLI, app Flutter e nó headless usam a mesma crate Rust. |
+| Setup simples para o usuário básico | Instalar e usar: sem terminal, sem Docker, sem variáveis de ambiente, sem relay para configurar. Infra própria (relay, nó 24/7) é **opt-in** para quem quer garantias (ADR 0008). |
 | Desktop-first, mobile-ready | MVP só desktop. O core não pode depender de nada exclusivo de desktop (ver seção 17.1). |
 
 ---
@@ -353,6 +354,8 @@ Contabilidade: cada byte servido para terceiros incrementa `contribution_stats` 
 
 - Endpoint iroh com relay configurável: em dev usar os relays públicos padrão do iroh; em produção, o relay próprio do `deploy/`. A URL do relay vai no ticket.
 - Discovery: discovery padrão do iroh (DNS/pkarr) + discovery em rede local (mDNS).
+- **Relay padrão: os públicos do iroh (zero configuração).** Relay próprio é opcional, para quem quer garantia de disponibilidade (seção 11.1 e ADR 0008); o usuário básico nunca precisa saber que ele existe.
+- **DNS à prova de redes ruins:** alguns roteadores e o MagicDNS do Tailscale descartam consultas DNS com EDNS, e o relay fica inalcançável (visto em campo na Fase 3, duas vezes). Hoje existe a opção `dns_servers`/`ENXAME_DNS_SERVERS`; o produto final deve **detectar e contornar sozinho** (ver Fase 6).
 - Métricas por conexão, expostas em `diag` e logadas: tipo de caminho (`Direct`/`Relay`/`Mixed`), RTT, tempo até a conexão direta, trocas de caminho.
 - **Essas métricas são o principal entregável de validação técnica da Fase 1.**
 
@@ -424,11 +427,27 @@ Contabilidade: cada byte servido para terceiros incrementa `contribution_stats` 
 - Discovery mDNS habilitado.
 - Ordem: Linux (X11 e Wayland; testar em Hyprland e BSPWM) → Windows. macOS só se não exigir trabalho específico relevante.
 - Empacotamento: AppImage (Linux) e instalador MSIX ou Inno Setup (Windows). Registrar a escolha em ADR.
-- **Aceite:** Linux ↔ Windows trocam mensagens e arquivos em redes diferentes; com a janela fechada, o app na bandeja continua atuando como carrier; o papel muda ao ligar o modo jogo ou desconectar o carregador do notebook; duas máquinas na mesma LAN conectam direto sem relay.
+- **Setup do usuário básico (princípio da seção 1.1):**
+  - instalação sem terminal (AppImage no Linux; instalador no Windows) e primeira execução sem configuração: gera a identidade, escolhe sozinho relay (os públicos), DNS e pasta de downloads;
+  - **DNS automático:** o app testa o resolvedor do sistema e, se ele não responder (EDNS descartado), passa sozinho a servidores públicos (`dns_servers`), sem o usuário saber; o `diag` mostra o motivo quando isso acontece;
+  - "usar o meu relay / meu servidor" fica numa tela de configurações avançadas (URL do relay, CA própria), nunca no caminho do onboarding;
+  - binários prontos para baixar (GitHub Releases, gerados pela CI) para quem ainda usa a linha de comando.
+- **Aceite:** uma pessoa não técnica instala o app e troca mensagens e arquivos com um contato **sem abrir terminal nem definir variável alguma**, inclusive atrás de um roteador que descarta EDNS; Linux ↔ Windows trocam mensagens e arquivos em redes diferentes; com a janela fechada, o app na bandeja continua atuando como carrier; o papel muda ao ligar o modo jogo ou desconectar o carregador do notebook; duas máquinas na mesma LAN conectam direto sem relay.
 
 ### Fase 7 — (Stretch) Call 1:1
 - Mídia via `flutter_webrtc`; sinalização (SDP/ICE) transportada como envelopes `CallSignal` sobre a conexão iroh já existente.
 - **Aceite:** chamada de voz e vídeo 1:1 entre dois desktops na mesma rede e em redes diferentes com NAT cone. Documentar o comportamento com NAT simétrico (provável falha sem TURN). A solução fica em ADR para pós-MVP.
+
+---
+
+### Pendências conhecidas (vindas dos testes de campo)
+
+| Origem | Pendência | Onde entra |
+|---|---|---|
+| Fase 3 (roteador de um usuário e MagicDNS do Tailscale descartam EDNS) | DNS com fallback automático, sem variável de ambiente | Fase 6 (aceite) — hoje: `dns_servers` |
+| Fases 1–4 | Instaladores e binários prontos (hoje é preciso compilar com Rust) | Fase 6 / CI de releases |
+| Fase 4 | `enxame-node` em Docker reconstruído e validado com arquivos | antes de recomendar o deploy próprio |
+| Fases 1–4 | Windows e rede móvel (4G/CGNAT) sem teste em campo | Fase 6 |
 
 ---
 
@@ -462,6 +481,7 @@ Contabilidade: cada byte servido para terceiros incrementa `contribution_stats` 
 5. Estratégia para calls com NAT simétrico (TURN próprio vs mídia sobre o relay do iroh).
 6. Caminho para MLS (`openmls`) e multi-dispositivo.
 7. Empacotamento e distribuição desktop (AppImage/Flatpak/AUR no Linux; MSIX vs Inno Setup no Windows).
+8. **Relay padrão** — decidido no ADR 0008: relays públicos do iroh por padrão; relay próprio opcional. Reabrir se o iroh/n0 mudar as condições dos relays públicos, ou se o projeto decidir operar um relay oficial.
 
 ---
 
