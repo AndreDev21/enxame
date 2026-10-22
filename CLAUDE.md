@@ -67,7 +67,7 @@ cargo run -p enxame-cli -- --help
   não carrega. Em testes use `role = "peer"` (papel fixo) ou `Enxame::tick_roles_at(Duration)` com
   `StaticSignals` para simular o relógio.
 - Config nova: `role`, `contribute`, `game_mode`, `budget.*`, `promote_after_*`, `role_interval_secs`,
-  `allowed_fingerprints`, `auto_accept_contacts` (e `ENXAME_*` correspondentes; `VAR=` vazio vale
+  `allowed_fingerprints`, `auto_accept_contacts`, `dns_servers` (e `ENXAME_*` correspondentes; `VAR=` vazio vale
   como ausente). CLI: `--role`, `--game-mode`, `--no-contribute`; no `chat`: `/papel`, `/jogo`,
   `/contribuir`, `/contribuicao`.
 - `enxame-node`: `run` (padrão) e `health`; papel fixo `SuperPeer`; chave em arquivo no volume;

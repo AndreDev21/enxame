@@ -104,6 +104,10 @@ pub struct Config {
     pub relay_ca_file: Option<PathBuf>,
     /// Descoberta mDNS na rede local.
     pub mdns: bool,
+    /// Servidores DNS (IPs) que o iroh usa no lugar dos do sistema. Útil quando o resolvedor local
+    /// descarta consultas com EDNS (alguns roteadores e o MagicDNS do Tailscale), o que impede
+    /// alcançar o relay. Ex.: `["1.1.1.1", "8.8.8.8"]`. Vazio = os do sistema.
+    pub dns_servers: Vec<String>,
     /// Discovery por DNS/pkarr (servidores do n0 por padrão). Desligue em redes isoladas.
     pub dns_discovery: bool,
     /// Tempo máximo esperando a decisão do outro lado ao adicionar contato.
@@ -145,6 +149,7 @@ impl Default for Config {
             relay: RelaySetting::default(),
             relay_ca_file: None,
             mdns: true,
+            dns_servers: Vec::new(),
             dns_discovery: true,
             contact_request_timeout_secs: 300,
             role: "auto".to_owned(),
@@ -165,6 +170,17 @@ impl Default for Config {
 }
 
 impl Config {
+    /// `dns_servers` como endereços IP, ou erro se algum não for um IP válido.
+    pub fn dns_server_addrs(&self) -> Result<Vec<std::net::IpAddr>> {
+        self.dns_servers
+            .iter()
+            .map(|s| {
+                s.parse()
+                    .map_err(|_| Error::Config(format!("dns_servers: `{s}` não é um IP")))
+            })
+            .collect()
+    }
+
     /// Carrega `<data_dir>/config.toml` (se existir) e aplica overrides de ambiente.
     pub fn load(data_dir: Option<PathBuf>) -> Result<Self> {
         let data_dir = data_dir
@@ -226,6 +242,14 @@ impl Config {
                 .filter(|x| !x.is_empty())
                 .collect();
         }
+        if let Some(v) = env_nonempty("ENXAME_DNS_SERVERS") {
+            cfg.dns_servers = v
+                .split(',')
+                .map(|x| x.trim().to_owned())
+                .filter(|x| !x.is_empty())
+                .collect();
+        }
+        cfg.dns_server_addrs()?;
         RoleMode::parse(&cfg.role)?;
         if let Some(v) = env_nonempty("ENXAME_DNS_DISCOVERY") {
             cfg.dns_discovery = !matches!(v.as_str(), "0" | "false" | "off");
@@ -267,4 +291,21 @@ pub fn default_data_dir() -> PathBuf {
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
     };
     base.unwrap_or_else(|| PathBuf::from(".")).join("enxame")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dns_servers_must_be_ip_addresses() {
+        let mut c = Config {
+            dns_servers: vec!["1.1.1.1".into(), "2606:4700:4700::1111".into()],
+            ..Config::default()
+        };
+        assert_eq!(c.dns_server_addrs().unwrap().len(), 2);
+        c.dns_servers = vec!["dns.google".into()];
+        assert!(c.dns_server_addrs().is_err());
+        assert!(Config::default().dns_server_addrs().unwrap().is_empty());
+    }
 }

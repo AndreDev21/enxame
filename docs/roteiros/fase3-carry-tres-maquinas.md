@@ -11,6 +11,17 @@ entrega quando B volta; o recibo apaga a cópia em C.** Três pessoas, três red
 
 B e C **ainda não são contatos**: o passo 1 resolve isso.
 
+## Se o relay não conectar (ticket só com endereços 192.168.x.x, `diag` com `udp: false`)
+
+Alguns roteadores e o MagicDNS do Tailscale descartam consultas DNS com EDNS, e o iroh não
+alcança o relay. Use servidores DNS próprios, em qualquer comando:
+
+```bash
+ENXAME_DNS_SERVERS=1.1.1.1,8.8.8.8 ./enxame-cli chat andre
+```
+(PowerShell: `$env:ENXAME_DNS_SERVERS="1.1.1.1,8.8.8.8"`.) Ou fixe no `config.toml`:
+`dns_servers = ["1.1.1.1", "8.8.8.8"]`.
+
 ## 0. Atualizar (as três máquinas)
 
 Pare qualquer `serve`/`chat` aberto (Ctrl-C) e atualize:

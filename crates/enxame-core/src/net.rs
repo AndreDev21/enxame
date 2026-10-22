@@ -48,6 +48,17 @@ pub async fn bind_endpoint(cfg: &Config, identity: &Identity) -> Result<Endpoint
             base.relay_mode(RelayMode::custom(urls))
         }
     };
+    let dns = cfg.dns_server_addrs()?;
+    let builder = if dns.is_empty() {
+        builder
+    } else {
+        let servers = dns.into_iter().map(iroh::dns::NameserverConfig::udp);
+        builder.dns_resolver(
+            iroh::dns::DnsResolver::builder()
+                .add_nameserver_configs(servers)
+                .build(),
+        )
+    };
     let builder = match &cfg.relay_ca_file {
         Some(path) => {
             let roots = load_pem_certs(path)?;

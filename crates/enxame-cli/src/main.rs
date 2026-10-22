@@ -72,7 +72,13 @@ enum Command {
         n: usize,
     },
     /// Conversa interativa: fica online, mostra o que chega e envia o que você digita.
-    Chat { contact: String },
+    ///
+    /// Aceita vários contatos (`chat bob andrecasa`): o texto simples vai para o primeiro e
+    /// `@nome texto` escolhe outro destinatário. Mostra o que chegar de qualquer um deles.
+    Chat {
+        #[arg(required = true)]
+        contacts: Vec<String>,
+    },
     /// Lista os contatos.
     Contacts,
     /// Diagnóstico de rede: NAT, caminho (direto/relay), RTT, papel.
@@ -207,7 +213,7 @@ async fn main() -> Result<()> {
                 print_message(&m);
             }
         }
-        Command::Chat { contact } => chat(load_config(&cli)?, contact).await?,
+        Command::Chat { contacts } => chat(load_config(&cli)?, contacts).await?,
         Command::Contacts => {
             let cfg = load_config(&cli)?;
             let book = enxame_core::list_contacts(&cfg)?;
@@ -266,35 +272,44 @@ fn print_message(m: &enxame_core::Message) {
 
 /// Conversa interativa. Fica online (aceita sessões do contato), mostra mensagens novas assim
 /// que chegam e envia cada linha digitada. `/sair` ou Ctrl-C encerram.
-async fn chat(cfg: Config, contact: &str) -> Result<()> {
+async fn chat(cfg: Config, contacts: &[String]) -> Result<()> {
     use tokio::io::AsyncBufReadExt;
     let node = start(cfg).await?;
-    // Valida o contato e mostra o contexto.
-    for m in node.history(contact, 20).await? {
-        print_message(&m);
+    // Valida os contatos e mostra o contexto de cada um.
+    for contact in contacts {
+        for m in node.history(contact, 20).await? {
+            print_message(&m);
+        }
     }
-    println!("--- {contact} (digite e Enter para enviar; /sair para sair) ---");
+    println!(
+        "--- {} (texto simples vai para {}; `@nome texto` escolhe outro; /sair para sair) ---",
+        contacts.join(", "),
+        contacts[0]
+    );
     let mut events = node.subscribe();
     let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     let mut ctrl_c = std::pin::pin!(tokio::signal::ctrl_c());
     // Sincroniza em segundo plano ao entrar, para puxar o que ficou pendente.
-    {
-        let node = node.clone();
-        let contact = contact.to_owned();
+    for contact in contacts {
+        let (node, contact) = (node.clone(), contact.clone());
         tokio::spawn(async move {
             let _ = node.sync_now(&contact).await;
         });
     }
+    // Contato (da lista) a que uma mensagem recebida pertence.
+    let owner = |from_name: &str, from_fp: &str| {
+        contacts.iter().find(|c| {
+            let q = c.to_lowercase();
+            from_name.to_lowercase() == q || (q.len() >= 4 && from_fp.starts_with(&q))
+        })
+    };
     loop {
         tokio::select! {
             _ = &mut ctrl_c => break,
             ev = events.recv() => match ev {
                 Ok(Event::MessageReceived { from_name, from_fingerprint, .. }) => {
-                    // Só a conversa aberta; mensagens de outros contatos ficam no histórico deles.
-                    let q = contact.to_lowercase();
-                    if from_name.to_lowercase() == q
-                        || (q.len() >= 4 && from_fingerprint.starts_with(&q))
-                    {
+                    // Só as conversas abertas; as outras ficam no histórico delas.
+                    if let Some(contact) = owner(&from_name, &from_fingerprint) {
                         if let Some(m) = node.history(contact, 1).await?.pop() {
                             print_message(&m);
                         }
@@ -316,9 +331,17 @@ async fn chat(cfg: Config, contact: &str) -> Result<()> {
                     chat_command(&node, line).await;
                     continue;
                 }
-                match node.send_text(contact, line).await {
-                    Ok(s) if s.synced => {}
-                    Ok(_) => println!("(guardada; contato inacessível agora, segue depois)"),
+                // `@nome texto` escolhe o destinatário; senão, o primeiro contato.
+                let (target, text) = match line.strip_prefix('@').and_then(|r| r.split_once(' ')) {
+                    Some((name, text)) => (name.to_owned(), text.trim().to_owned()),
+                    None => (contacts[0].clone(), line.to_owned()),
+                };
+                match node.send_text(&target, &text).await {
+                    Ok(s) if s.synced => println!("(→ {target}: entregue)"),
+                    Ok(s) if s.carriers > 0 => {
+                        println!("(→ {target}: offline; {} carrier(s) vão entregar quando ele voltar)", s.carriers)
+                    }
+                    Ok(_) => println!("(→ {target}: guardada; inacessível agora, segue depois)"),
                     Err(e) => println!("erro: {e}"),
                 }
             }
