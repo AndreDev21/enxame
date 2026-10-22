@@ -262,10 +262,10 @@ class CallController extends ChangeNotifier {
 
   Timer? _statsTimer;
 
-  /// Tela: mira em 30 quadros por segundo, com texto legível. Captura a 30 fps, teto de 1080p de
-  /// largura (menos pixels = mais quadros na mesma banda) e de 8 Mbit/s, e pede "manter resolução":
-  /// sem isso o WebRTC começa em 640x360 (texto borrado). Não há como garantir 30 fps numa rede
-  /// lenta: se a banda de subida faltar, caem os quadros, não a nitidez.
+  /// Tela: mira em 30 quadros por segundo, com texto legível. Captura a 30 fps e pede "manter
+  /// resolução" (sem isso o WebRTC começa em 640x360, texto borrado). No Linux o plugin ignora
+  /// `maxBitrate`/`scaleResolutionDownBy` do sender (medido no campo): o limite de bitrate que
+  /// vale é o do SDP (`boostVideoBitrate`). Não há como garantir 30 fps numa rede lenta.
   Future<void> _tuneScreenSender() async {
     final sender = _videoSender;
     if (sender == null) return;
@@ -520,7 +520,11 @@ class CallController extends ChangeNotifier {
     if (pc == null) return;
     try {
       _makingOffer = true;
-      final offer = await pc.createOffer();
+      final created = await pc.createOffer();
+      final offer = RTCSessionDescription(
+        boostVideoBitrate(created.sdp ?? ''),
+        created.type,
+      );
       await pc.setLocalDescription(offer);
       await _send({'t': 'offer', 'sdp': offer.sdp, 'type': offer.type});
     } finally {
@@ -555,7 +559,11 @@ class CallController extends ChangeNotifier {
         'atendente: oferta aplicada, ${_pendingIce.length} candidatos pendentes',
       );
       await _flushIce(pc);
-      final answer = await pc.createAnswer();
+      final created = await pc.createAnswer();
+      final answer = RTCSessionDescription(
+        boostVideoBitrate(created.sdp ?? ''),
+        created.type,
+      );
       await pc.setLocalDescription(answer);
       await _send({'t': 'answer', 'sdp': answer.sdp, 'type': answer.type});
     } catch (e, st) {
@@ -653,6 +661,46 @@ class CallController extends ChangeNotifier {
     localRenderer.dispose();
     super.dispose();
   }
+}
+
+/// Pede ao libwebrtc um limite de bitrate de vídeo maior na negociação. O padrão (~2,5 Mbit/s
+/// para 1440p) faz o encoder descartar quadros mesmo com banda de sobra: no campo, 21 fps na
+/// captura viravam 4 fps codificados com 5 Mbit/s estimados livres. Cada lado aplica isto ao seu
+/// SDP local, então quem envia vê o `b=AS` e o `x-google-*` no SDP remoto.
+String boostVideoBitrate(
+  String sdp, {
+  int minKbps = 2000,
+  int startKbps = 4000,
+  int maxKbps = 8000,
+}) {
+  final lines = sdp.split(RegExp(r'\r?\n'));
+  final out = <String>[];
+  var inVideo = false;
+  var wroteBandwidth = false;
+  final boost =
+      'x-google-min-bitrate=$minKbps;x-google-start-bitrate=$startKbps;'
+      'x-google-max-bitrate=$maxKbps';
+  for (final line in lines) {
+    if (line.startsWith('m=')) {
+      inVideo = line.startsWith('m=video');
+      wroteBandwidth = false;
+    }
+    if (inVideo && line.startsWith('b=AS:')) continue; // refeito logo após o c=
+    if (inVideo &&
+        line.startsWith('a=fmtp:') &&
+        !line.contains('apt=') &&
+        !line.contains('x-google-')) {
+      out.add('$line;$boost');
+      continue;
+    }
+    out.add(line);
+    // `b=` vem logo depois de `c=` na seção de vídeo.
+    if (inVideo && !wroteBandwidth && line.startsWith('c=')) {
+      out.add('b=AS:$maxKbps');
+      wroteBandwidth = true;
+    }
+  }
+  return out.join('\r\n');
 }
 
 /// Transporte pelo núcleo: JSON dentro de um sinal E2E (`send_call_signal`).

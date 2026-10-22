@@ -7,20 +7,24 @@ void main() {
   testWidgets('textos de pt e en cobrem as mesmas chaves', (tester) async {
     for (final locale in L.supportedLocales) {
       late L l;
-      await tester.pumpWidget(MaterialApp(
-        locale: locale,
-        localizationsDelegates: const [
-          L.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        supportedLocales: L.supportedLocales,
-        home: Builder(builder: (c) {
-          l = L.of(c);
-          return const SizedBox();
-        }),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: locale,
+          localizationsDelegates: const [
+            L.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: L.supportedLocales,
+          home: Builder(
+            builder: (c) {
+              l = L.of(c);
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(l.appName, 'Enxame');
       expect(l.contactAdded('Bia'), contains('Bia'));
