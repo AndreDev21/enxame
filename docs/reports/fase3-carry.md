@@ -46,17 +46,44 @@ Verificado localmente com Docker 29:
 - Não testado: Let's Encrypt (precisa de DNS e das portas 80/443 públicas) e `compose up` completo
   num servidor real.
 
-## Pendente: teste em máquinas reais (A, B, C)
+## Validação em campo (2026-10-22)
 
-Pré-requisito: as três máquinas viram contatos mútuas **entre si** (hoje A é contato de B e de C,
-mas B e C ainda não são contatos).
+Três máquinas Linux, relay público padrão do iroh, coordenadas pelo próprio Enxame (A = orquestrador):
+**A** (fibra residencial), **B** (outra máquina, mesma LAN e mesmo IP público de A) e **C** (outra
+cidade, outro ISP). C rodou com `--role peer`. B e C só viraram contatos durante o teste.
 
-1. **B ↔ C**: B roda `serve` e copia o ticket; C faz `add '<ticket>'`; B aceita.
-2. Em cada máquina, `chat <contato>` por ~10 s com cada um dos outros dois (troca a lista de
-   contatos em comum).
-3. **B fecha o chat.** Em A: `send <B> "teste de carry"`. Esperado:
-   `Guardada; o contato está offline. 1 contato(s) em comum vão carregá-la ...`.
-4. **A fecha o chat/serve.** C continua online (`chat` ou `serve`).
-5. **B reabre** o chat com C (`chat <C>`): a mensagem de A deve aparecer sem A estar online.
-6. **A reabre** o chat: `history <B>` passa de `…` a `✓` (recibo entregue por C).
-7. Em C, `/contribuicao` no chat mostra os bytes servidos no mês.
+| Passo | Resultado |
+|---|---|
+| B e C viram contatos (ticket repassado por mensagem de A) | ok, fingerprints conferidas |
+| Aquecimento: contatos em comum descobertos | ok: o banco de A listou B↔C nos dois sentidos; C como `Peer`, B como `Leaf` |
+| Rodada 1: B sai; A escreve → carrier aceita (`offline; 1 carrier(s) vão entregar`) | ok |
+| A sai; B volta e recebe **por C** (C: 562 bytes servidos, 0 guardadas depois) | ok; a sonda chegou sem A online |
+| Recibo: A volta e vê ✓ nas mensagens | ok (0 pendentes) |
+| Rodada 2 (com a correção abaixo): A escreve R2-1, R2-2, R2-3 com B offline | ok: as três aceitas por C |
+| A sai; B volta e recebe R2-1, R2-2, R2-3 sozinho, na ordem, sem duplicatas | ok (relato de B) |
+| A volta: R2-1..3 como entregues (✓), 0 pendentes | ok |
+
+Leituras de `/contribuicao` em C durante a rodada 2: 2 guardadas (01:15), depois 1 guardada e
+3886 bytes servidos (01:18). A "1" restante é provavelmente uma mensagem do próprio B para A que C
+carregou enquanto A estava offline (o carry funciona nos dois sentidos); a leitura final pedida a
+C (esperado: 0) não chegou antes do fechamento deste relatório.
+
+### Achados do campo (todos corrigidos e publicados)
+
+1. **DNS com EDNS descartado** (roteador de B, MagicDNS do Tailscale em A): o relay ficava
+   inalcançável e o ticket saía só com endereços da LAN. Ocorreu duas vezes. Correção:
+   `dns_servers` / `ENXAME_DNS_SERVERS` (validado: sem a opção `udp: false`; com
+   `1.1.1.1,8.8.8.8`, NAT detectado e relay conectado).
+2. **Bug de carry**: o carrier que já guardava a primeira mensagem pendente era tratado como se
+   guardasse todas, então as seguintes não lhe eram oferecidas (na rodada 1 só a "sonda" foi
+   carregada; as outras chegaram direto quando A voltou). Corrigido em `offer_to_carriers`, com
+   teste de regressão (`every_message_to_an_offline_contact_is_carried_not_just_the_first`). A
+   rodada 2 confirma em campo.
+3. **`serve` não saía com Ctrl-C** (a leitura de stdin do tokio prendia o runtime). Corrigido.
+4. `@nome` sem texto no `chat` era enviado como mensagem. Corrigido.
+
+### Limites desta validação
+
+- A e B compartilham LAN/IP público; só C está em outra rede.
+- O nó headless (`enxame-node`) foi validado localmente (testes e script e2e), não em campo.
+- Windows e rede móvel seguem sem teste.
