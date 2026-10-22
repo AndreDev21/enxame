@@ -118,6 +118,32 @@ void main() {
       );
       expect(b.remoteHasVideo, isTrue);
 
+      // Nitidez e fluidez do envio: resolução de leitura e perto de 30 quadros por segundo.
+      num sentWidth = 0;
+      num bestFps = 0;
+      for (var i = 0; i < 30 && (sentWidth < 1280 || bestFps < 25); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        for (final r in await a.stats()) {
+          if (r.type == 'outbound-rtp' && r.values['kind'] == 'video') {
+            sentWidth = (r.values['frameWidth'] as num?) ?? sentWidth;
+            final f = (r.values['framesPerSecond'] as num?) ?? 0;
+            if (f > bestFps) bestFps = f;
+          }
+        }
+      }
+      // ignore: avoid_print
+      print('[tela] largura enviada: $sentWidth, fps enviados: $bestFps');
+      expect(
+        sentWidth,
+        greaterThanOrEqualTo(1280),
+        reason: 'resolução de leitura',
+      );
+      expect(
+        bestFps,
+        greaterThanOrEqualTo(25),
+        reason: 'alvo de 30 fps na tela',
+      );
+
       // Parar e desligar: as duas voltam a ociosas e a captura para.
       await a.stopShare();
       expect(a.sharing, isFalse);

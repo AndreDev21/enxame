@@ -47,7 +47,13 @@ class _HomeScreenState extends State<HomeScreen> {
         c.endedReason != null &&
         mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(L.of(context).callEnded(c.endedReason!))),
+        SnackBar(
+          content: Text(
+            c.endedReason == 'encerrada'
+                ? L.of(context).callEndedPlain
+                : L.of(context).callEnded(c.endedReason!),
+          ),
+        ),
       );
     }
   }

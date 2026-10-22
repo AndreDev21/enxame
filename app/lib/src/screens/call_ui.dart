@@ -156,11 +156,16 @@ class CallOverlay extends StatelessWidget {
                                         ),
                                         _ => l.callIncomingAudio(name),
                                       },
-                                      CallPhase.connecting => l.callConnecting,
+                                      CallPhase.connecting =>
+                                        c.peerPreparing
+                                            ? l.callPeerChoosing(name)
+                                            : l.callConnecting,
                                       _ =>
-                                        c.kind == CallKind.screen
-                                            ? l.callWaitingVideo
-                                            : '',
+                                        c.sharing
+                                            ? l.callYouShareTo(name)
+                                            : (c.kind == CallKind.screen
+                                                  ? l.callWaitingVideo
+                                                  : ''),
                                     }),
                                   ],
                                 ),

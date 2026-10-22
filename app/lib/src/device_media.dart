@@ -26,7 +26,7 @@ class DeviceMedia implements MediaProvider {
     return navigator.mediaDevices.getDisplayMedia({
       'video': {
         'deviceId': {'exact': source.id},
-        'mandatory': {'frameRate': 15},
+        'mandatory': {'frameRate': 30, 'minFrameRate': 30},
       },
       'audio': false,
     });

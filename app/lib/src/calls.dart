@@ -262,26 +262,33 @@ class CallController extends ChangeNotifier {
 
   Timer? _statsTimer;
 
-  /// Tela: nitidez antes de fluidez. Sem isto o WebRTC começa em 640x360 (texto borrado) e só
-  /// sobe quando mede a banda; com "manter resolução" ele cai nos quadros por segundo, não nos
-  /// pixels. Teto de 4 Mbit/s e 15 quadros por segundo bastam para texto e rolagem.
+  /// Tela: mira em 30 quadros por segundo, com texto legível. Captura a 30 fps, teto de 1080p de
+  /// largura (menos pixels = mais quadros na mesma banda) e de 8 Mbit/s, e pede "manter resolução":
+  /// sem isso o WebRTC começa em 640x360 (texto borrado). Não há como garantir 30 fps numa rede
+  /// lenta: se a banda de subida faltar, caem os quadros, não a nitidez.
   Future<void> _tuneScreenSender() async {
     final sender = _videoSender;
     if (sender == null) return;
     try {
+      // Largura real capturada, para reduzir só o que passar de 1920.
+      var width = 1920.0;
+      final settings = _screen?.getVideoTracks().firstOrNull?.getSettings();
+      final w = settings?['width'];
+      if (w is num) width = w.toDouble();
       final p = sender.parameters;
       p.degradationPreference = RTCDegradationPreference.MAINTAIN_RESOLUTION;
       final enc = (p.encodings != null && p.encodings!.isNotEmpty)
           ? p.encodings!.first
           : RTCRtpEncoding();
       enc
-        ..maxBitrate = 4000000
-        ..maxFramerate = 15
-        ..scaleResolutionDownBy = 1.0;
+        ..maxBitrate = 8000000
+        ..maxFramerate = 30
+        ..scaleResolutionDownBy = width > 1920 ? width / 1920 : 1.0;
       p.encodings = [enc];
       final ok = await sender.setParameters(p);
       _log(
-        'afinando a tela (manter resolução, 4 Mbit/s, 15 fps): ${ok ? 'ok' : 'recusado'}',
+        'afinando a tela (30 fps, ${width.round()}→≤1920 px, até 8 Mbit/s, manter resolução): '
+        '${ok ? 'ok' : 'recusado'}',
       );
     } catch (e) {
       _log('não consegui afinar o envio da tela: $e');
