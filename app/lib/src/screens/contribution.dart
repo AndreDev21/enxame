@@ -7,7 +7,9 @@ String _size(BigInt bytes) {
   final b = bytes.toDouble();
   if (b < 1024) return '${b.toInt()} B';
   if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB';
-  if (b < 1024 * 1024 * 1024) return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
+  if (b < 1024 * 1024 * 1024) {
+    return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
   return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
 }
 
@@ -30,43 +32,52 @@ class ContributionScreen extends StatelessWidget {
         Text(l.contributionHelp),
         const SizedBox(height: 16),
         Card(
-          child: Column(children: [
-            SwitchListTile(
-              title: Text(l.contribute),
-              subtitle: Text(l.contributeHelp),
-              value: state.contributing,
-              onChanged: state.setContribution,
-            ),
-            SwitchListTile(
-              title: Text(l.gameMode),
-              subtitle: Text(l.gameModeHelp),
-              value: state.gameMode,
-              onChanged: state.setGameMode,
-            ),
-          ]),
+          child: Column(
+            children: [
+              SwitchListTile(
+                title: Text(l.contribute),
+                subtitle: Text(l.contributeHelp),
+                value: state.contributing,
+                onChanged: state.setContribution,
+              ),
+              SwitchListTile(
+                title: Text(l.gameMode),
+                subtitle: Text(l.gameModeHelp),
+                value: state.gameMode,
+                onChanged: state.setGameMode,
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 8),
         if (c != null) ...[
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                _row(context, l.roleLabel, c.role),
-                const SizedBox(height: 12),
-                Text(l.servedThisMonth, style: t.textTheme.labelLarge),
-                const SizedBox(height: 4),
-                LinearProgressIndicator(
-                  value: c.budgetBytes == BigInt.zero
-                      ? 0
-                      : (c.bytesServed.toDouble() / c.budgetBytes.toDouble()).clamp(0.0, 1.0),
-                ),
-                const SizedBox(height: 4),
-                Text('${_size(c.bytesServed)} / ${_size(c.budgetBytes)}'),
-                const Divider(height: 28),
-                _row(context, l.carrying,
-                    '${l.messagesUnit(c.carryItems.toInt())} · ${_size(c.carryBytes)}'),
-                _row(context, l.itemsDelivered, '${c.itemsDelivered}'),
-              ]),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _row(context, l.roleLabel, c.role),
+                  const SizedBox(height: 12),
+                  Text(l.servedThisMonth, style: t.textTheme.labelLarge),
+                  const SizedBox(height: 4),
+                  LinearProgressIndicator(
+                    value: c.budgetBytes == BigInt.zero
+                        ? 0
+                        : (c.bytesServed.toDouble() / c.budgetBytes.toDouble())
+                              .clamp(0.0, 1.0),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('${_size(c.bytesServed)} / ${_size(c.budgetBytes)}'),
+                  const Divider(height: 28),
+                  _row(
+                    context,
+                    l.carrying,
+                    '${l.messagesUnit(c.carryItems.toInt())} · ${_size(c.carryBytes)}',
+                  ),
+                  _row(context, l.itemsDelivered, '${c.itemsDelivered}'),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -87,10 +98,12 @@ class ContributionScreen extends StatelessWidget {
   }
 
   Widget _row(BuildContext context, String k, String v) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Row(children: [
-          Expanded(child: Text(k)),
-          Text(v, style: Theme.of(context).textTheme.titleSmall),
-        ]),
-      );
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: Row(
+      children: [
+        Expanded(child: Text(k)),
+        Text(v, style: Theme.of(context).textTheme.titleSmall),
+      ],
+    ),
+  );
 }

@@ -1,3 +1,5 @@
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -30,30 +32,39 @@ class ChatsView extends StatelessWidget {
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
-                child: Row(children: [
-                  Expanded(
-                      child: Text(l.navChats,
-                          style: Theme.of(context).textTheme.titleLarge)),
-                  IconButton(
-                    tooltip: l.newGroup,
-                    icon: const Icon(Icons.group_add_outlined),
-                    onPressed: () => _newGroup(context),
-                  ),
-                ]),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        l.navChats,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: l.newGroup,
+                      icon: const Icon(Icons.group_add_outlined),
+                      onPressed: () => _newGroup(context),
+                    ),
+                  ],
+                ),
               ),
               Expanded(
                 child: convs.isEmpty
                     ? Center(
                         child: Padding(
                           padding: const EdgeInsets.all(24),
-                          child: Column(mainAxisSize: MainAxisSize.min, children: [
-                            Text(l.noChats, textAlign: TextAlign.center),
-                            const SizedBox(height: 12),
-                            FilledButton.icon(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(l.noChats, textAlign: TextAlign.center),
+                              const SizedBox(height: 12),
+                              FilledButton.icon(
                                 onPressed: onAddContact,
                                 icon: const Icon(Icons.person_add),
-                                label: Text(l.addContact)),
-                          ]),
+                                label: Text(l.addContact),
+                              ),
+                            ],
+                          ),
                         ),
                       )
                     : ListView.builder(
@@ -66,9 +77,17 @@ class ChatsView extends StatelessWidget {
                             leading: CircleAvatar(
                               child: conv is GroupConversation
                                   ? const Icon(Icons.groups_2_outlined)
-                                  : Text(conv.title.isEmpty ? '?' : conv.title[0].toUpperCase()),
+                                  : Text(
+                                      conv.title.isEmpty
+                                          ? '?'
+                                          : conv.title[0].toUpperCase(),
+                                    ),
                             ),
-                            title: Text(conv.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                            title: Text(
+                              conv.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             subtitle: last == null
                                 ? null
                                 : Text(
@@ -76,7 +95,9 @@ class ChatsView extends StatelessWidget {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                            trailing: last == null ? null : Text(_clock(last.timeMs)),
+                            trailing: last == null
+                                ? null
+                                : Text(_clock(last.timeMs)),
                             onTap: () => state.select(conv),
                           );
                         },
@@ -89,7 +110,11 @@ class ChatsView extends StatelessWidget {
         Expanded(
           child: selected == null
               ? Center(child: Text(l.pickChat))
-              : ChatPane(key: ValueKey(selected.key), state: state, conversation: selected),
+              : ChatPane(
+                  key: ValueKey(selected.key),
+                  state: state,
+                  conversation: selected,
+                ),
         ),
       ],
     );
@@ -99,7 +124,8 @@ class ChatsView extends StatelessWidget {
     final l = L.of(context);
     final contacts = state.contacts.where((c) => c.mutual).toList();
     if (contacts.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l.groupNeedsContacts)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l.groupNeedsContacts)));
       return;
     }
     final name = TextEditingController();
@@ -111,33 +137,49 @@ class ChatsView extends StatelessWidget {
           title: Text(l.newGroup),
           content: SizedBox(
             width: 360,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(
-                controller: name,
-                autofocus: true,
-                decoration: InputDecoration(labelText: l.groupNameLabel),
-                onChanged: (_) => setS(() {}),
-              ),
-              const SizedBox(height: 12),
-              Align(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: name,
+                  autofocus: true,
+                  decoration: InputDecoration(labelText: l.groupNameLabel),
+                  onChanged: (_) => setS(() {}),
+                ),
+                const SizedBox(height: 12),
+                Align(
                   alignment: Alignment.centerLeft,
-                  child: Text(l.groupMembersLabel, style: Theme.of(c).textTheme.titleSmall)),
-              Flexible(
-                child: ListView(shrinkWrap: true, children: [
-                  for (final ct in contacts)
-                    CheckboxListTile(
-                      dense: true,
-                      title: Text(ct.name),
-                      value: picked.contains(ct.fingerprint),
-                      onChanged: (v) => setS(() =>
-                          v == true ? picked.add(ct.fingerprint) : picked.remove(ct.fingerprint)),
-                    ),
-                ]),
-              ),
-            ]),
+                  child: Text(
+                    l.groupMembersLabel,
+                    style: Theme.of(c).textTheme.titleSmall,
+                  ),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final ct in contacts)
+                        CheckboxListTile(
+                          dense: true,
+                          title: Text(ct.name),
+                          value: picked.contains(ct.fingerprint),
+                          onChanged: (v) => setS(
+                            () => v == true
+                                ? picked.add(ct.fingerprint)
+                                : picked.remove(ct.fingerprint),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(l.cancel)),
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text(l.cancel),
+            ),
             FilledButton(
               onPressed: name.text.trim().isEmpty || picked.isEmpty
                   ? null
@@ -176,6 +218,33 @@ class _ChatPaneState extends State<ChatPane> {
   final _input = TextEditingController();
   final _focus = FocusNode();
   bool _sending = false;
+  bool _dragging = false;
+
+  Future<void> _sendFiles(Iterable<String> paths) async {
+    final l = L.of(context);
+    final conv = widget.conversation;
+    if (conv is! DmConversation) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l.groupFilesUnsupported)));
+      return;
+    }
+    for (final path in paths) {
+      final name = path.split(RegExp(r'[\\/]')).last;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l.fileSent(name))));
+      final error = await widget.state.sendFile(conv, path);
+      if (!mounted) return;
+      if (error != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l.fileFailed(error))));
+      }
+    }
+  }
+
+  Future<void> _pickFile() async {
+    final f = await openFile();
+    if (f != null) await _sendFiles([f.path]);
+  }
 
   Future<void> _send() async {
     final l = L.of(context);
@@ -207,8 +276,13 @@ class _ChatPaneState extends State<ChatPane> {
         ListTile(
           title: Text(conv.title, style: t.textTheme.titleMedium),
           subtitle: isGroup
-              ? Text(conv.group.members.map((m) => m.isMe ? l.you : m.name).join(', '),
-                  maxLines: 1, overflow: TextOverflow.ellipsis)
+              ? Text(
+                  conv.group.members
+                      .map((m) => m.isMe ? l.you : m.name)
+                      .join(', '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                )
               : Text(conv is DmConversation ? conv.contact.fingerprint : ''),
           trailing: isGroup
               ? IconButton(
@@ -220,17 +294,45 @@ class _ChatPaneState extends State<ChatPane> {
         ),
         const Divider(height: 1),
         Expanded(
-          child: msgs.isEmpty
-              ? Center(child: Text(l.noMessages))
-              : ListView.builder(
-                  reverse: true,
-                  padding: const EdgeInsets.all(12),
-                  itemCount: msgs.length,
-                  itemBuilder: (c, i) {
-                    final m = msgs[msgs.length - 1 - i];
-                    return _Bubble(message: m, showAuthor: isGroup && !m.fromMe);
-                  },
+          child: DropTarget(
+            onDragEntered: (_) => setState(() => _dragging = true),
+            onDragExited: (_) => setState(() => _dragging = false),
+            onDragDone: (d) {
+              setState(() => _dragging = false);
+              _sendFiles(d.files.map((f) => f.path));
+            },
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: msgs.isEmpty
+                      ? Center(child: Text(l.noMessages))
+                      : ListView.builder(
+                          reverse: true,
+                          padding: const EdgeInsets.all(12),
+                          itemCount: msgs.length,
+                          itemBuilder: (c, i) {
+                            final m = msgs[msgs.length - 1 - i];
+                            return _Bubble(
+                              message: m,
+                              showAuthor: isGroup && !m.fromMe,
+                              state: widget.state,
+                              conversation: conv,
+                            );
+                          },
+                        ),
                 ),
+                if (_dragging)
+                  Positioned.fill(
+                    child: ColoredBox(
+                      color: t.colorScheme.primary.withValues(alpha: 0.12),
+                      child: Center(
+                        child: Text(l.dropHere, style: t.textTheme.titleLarge),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
         if (widget.state.transfers.isNotEmpty)
           LinearProgressIndicator(value: widget.state.transfers.values.last),
@@ -239,29 +341,36 @@ class _ChatPaneState extends State<ChatPane> {
         else
           Padding(
             padding: const EdgeInsets.all(12),
-            child: Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: _input,
-                  focusNode: _focus,
-                  autofocus: true,
-                  minLines: 1,
-                  maxLines: 5,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _send(),
-                  decoration: InputDecoration(
-                    hintText: l.typeMessage,
-                    border: const OutlineInputBorder(),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: l.attachFile,
+                  onPressed: isGroup ? null : _pickFile,
+                  icon: const Icon(Icons.attach_file),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _input,
+                    focusNode: _focus,
+                    autofocus: true,
+                    minLines: 1,
+                    maxLines: 5,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
+                    decoration: InputDecoration(
+                      hintText: l.typeMessage,
+                      border: const OutlineInputBorder(),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                tooltip: l.send,
-                onPressed: _sending ? null : _send,
-                icon: const Icon(Icons.send),
-              ),
-            ]),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  tooltip: l.send,
+                  onPressed: _sending ? null : _send,
+                  icon: const Icon(Icons.send),
+                ),
+              ],
+            ),
           ),
       ],
     );
@@ -275,30 +384,39 @@ class _ChatPaneState extends State<ChatPane> {
         title: Text(group.name),
         content: SizedBox(
           width: 380,
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(l.groupCreator(group.creator)),
-            const SizedBox(height: 12),
-            for (final m in group.members)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(
-                    radius: 14, child: Text(m.name.isEmpty ? '?' : m.name[0].toUpperCase())),
-                title: Text(m.isMe ? '${m.name} (${l.you})' : m.name),
-                subtitle: m.exposed ? Text(l.seesYourIp) : null,
-                trailing: group.iAmCreator && !m.isMe
-                    ? IconButton(
-                        tooltip: l.removeMember,
-                        icon: const Icon(Icons.person_remove_outlined),
-                        onPressed: () async {
-                          Navigator.pop(c);
-                          await api.removeGroupMember(group: group.id, member: m.fingerprint);
-                          await widget.state.refreshAll();
-                        },
-                      )
-                    : null,
-              ),
-          ]),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(l.groupCreator(group.creator)),
+              const SizedBox(height: 12),
+              for (final m in group.members)
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    radius: 14,
+                    child: Text(m.name.isEmpty ? '?' : m.name[0].toUpperCase()),
+                  ),
+                  title: Text(m.isMe ? '${m.name} (${l.you})' : m.name),
+                  subtitle: m.exposed ? Text(l.seesYourIp) : null,
+                  trailing: group.iAmCreator && !m.isMe
+                      ? IconButton(
+                          tooltip: l.removeMember,
+                          icon: const Icon(Icons.person_remove_outlined),
+                          onPressed: () async {
+                            Navigator.pop(c);
+                            await api.removeGroupMember(
+                              group: group.id,
+                              member: m.fingerprint,
+                            );
+                            await widget.state.refreshAll();
+                          },
+                        )
+                      : null,
+                ),
+            ],
+          ),
         ),
         actions: [
           if (group.iAmCreator)
@@ -318,8 +436,9 @@ class _ChatPaneState extends State<ChatPane> {
   Future<void> _addMember(BuildContext context, GroupInfo group) async {
     final l = L.of(context);
     final inGroup = group.members.map((m) => m.fingerprint).toSet();
-    final options =
-        widget.state.contacts.where((c) => c.mutual && !inGroup.contains(c.fingerprint)).toList();
+    final options = widget.state.contacts
+        .where((c) => c.mutual && !inGroup.contains(c.fingerprint))
+        .toList();
     if (options.isEmpty) return;
     final pick = await showDialog<ContactInfo>(
       context: context,
@@ -327,7 +446,10 @@ class _ChatPaneState extends State<ChatPane> {
         title: Text(l.addMember),
         children: [
           for (final o in options)
-            SimpleDialogOption(onPressed: () => Navigator.pop(c, o), child: Text(o.name)),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(c, o),
+              child: Text(o.name),
+            ),
         ],
       ),
     );
@@ -338,18 +460,88 @@ class _ChatPaneState extends State<ChatPane> {
   }
 }
 
+String _bytes(BigInt n) {
+  final b = n.toDouble();
+  if (b < 1024) return '${b.toInt()} B';
+  if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB';
+  if (b < 1024 * 1024 * 1024) {
+    return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+}
+
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message, required this.showAuthor});
+  const _Bubble({
+    required this.message,
+    required this.showAuthor,
+    required this.state,
+    required this.conversation,
+  });
   final MessageInfo message;
   final bool showAuthor;
+  final AppState state;
+  final Conversation conversation;
+
+  /// Baixar (se ainda não está aqui), progresso e onde foi salvo.
+  List<Widget> _fileActions(BuildContext context, L l, Color fg) {
+    final item = state.fileItems[message.id];
+    final saved = state.savedAt[message.id];
+    final error = state.fileErrors[message.id];
+    final conv = conversation;
+    final progress = state.transfers.entries.where(
+      (e) => message.file?.name == e.key,
+    );
+    return [
+      if (progress.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: LinearProgressIndicator(value: progress.first.value),
+        ),
+      if (saved != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: SelectableText(
+            l.fileSavedAt(saved),
+            style: TextStyle(color: fg.withValues(alpha: 0.8), fontSize: 12),
+          ),
+        )
+      else if (!message.fromMe &&
+          item != null &&
+          !item.available &&
+          conv is DmConversation)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: FilledButton.tonalIcon(
+            onPressed: () => state.download(conv, message.id),
+            icon: const Icon(Icons.download),
+            label: Text(l.fileDownload),
+          ),
+        ),
+      if (error != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            l.fileFailed(error),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+              fontSize: 12,
+            ),
+          ),
+        ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final l = L.of(context);
     final mine = message.fromMe;
-    final bg = mine ? t.colorScheme.primaryContainer : t.colorScheme.surfaceContainerHighest;
-    final fg = mine ? t.colorScheme.onPrimaryContainer : t.colorScheme.onSurface;
+    final bg = mine
+        ? t.colorScheme.primaryContainer
+        : t.colorScheme.surfaceContainerHighest;
+    final fg = mine
+        ? t.colorScheme.onPrimaryContainer
+        : t.colorScheme.onSurface;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
@@ -364,22 +556,57 @@ class _Bubble extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (showAuthor)
-                  Text(message.author,
-                      style: t.textTheme.labelMedium?.copyWith(color: t.colorScheme.primary)),
-                SelectableText(message.text, style: TextStyle(color: fg)),
-                const SizedBox(height: 2),
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text(_clock(message.timeMs),
-                      style: t.textTheme.labelSmall?.copyWith(color: fg.withValues(alpha: 0.7))),
-                  if (mine && message.delivered != null) ...[
-                    const SizedBox(width: 4),
-                    Tooltip(
-                      message: message.delivered! ? l.deliveredHint : l.pendingHint,
-                      child: Icon(message.delivered! ? Icons.done_all : Icons.schedule,
-                          size: 14, color: fg.withValues(alpha: 0.7)),
+                  Text(
+                    message.author,
+                    style: t.textTheme.labelMedium?.copyWith(
+                      color: t.colorScheme.primary,
                     ),
+                  ),
+                if (message.file case final f?) ...[
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.insert_drive_file_outlined, color: fg),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          '${f.name} (${_bytes(f.size)})',
+                          style: TextStyle(
+                            color: fg,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  ..._fileActions(context, l, fg),
+                ] else
+                  SelectableText(message.text, style: TextStyle(color: fg)),
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _clock(message.timeMs),
+                      style: t.textTheme.labelSmall?.copyWith(
+                        color: fg.withValues(alpha: 0.7),
+                      ),
+                    ),
+                    if (mine && message.delivered != null) ...[
+                      const SizedBox(width: 4),
+                      Tooltip(
+                        message: message.delivered!
+                            ? l.deliveredHint
+                            : l.pendingHint,
+                        child: Icon(
+                          message.delivered! ? Icons.done_all : Icons.schedule,
+                          size: 14,
+                          color: fg.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ],
                   ],
-                ]),
+                ),
               ],
             ),
           ),

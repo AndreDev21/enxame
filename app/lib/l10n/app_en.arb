@@ -158,5 +158,60 @@
         "type": "String"
       }
     }
+  },
+  "navSettings": "Settings",
+  "attachFile": "Send a file",
+  "dropHere": "Drop the file here to send it",
+  "fileDownload": "Download",
+  "fileSavedAt": "Saved to {path}",
+  "fileSent": "Sending {name}…",
+  "fileFailed": "File problem: {error}",
+  "groupFilesUnsupported": "Files are not supported in groups yet.",
+  "settingsTitle": "Settings",
+  "settingsBehavior": "Behavior",
+  "closeToTray": "Closing the window keeps Enxame running in the tray",
+  "closeToTrayHelp": "That way your computer keeps helping your contacts. Off, closing the window quits the app.",
+  "autostart": "Open Enxame when the computer starts",
+  "autostartHelp": "Off by default.",
+  "advancedTitle": "Advanced",
+  "advancedHelp": "You do not need to touch this. These options are for people with their own server or a troublesome network. They apply the next time the app opens.",
+  "relayField": "Relay (default, disabled or your relay URL)",
+  "relayCaField": "Relay's own CA (PEM file, optional)",
+  "dnsField": "DNS servers (IPs separated by commas; empty = automatic)",
+  "downloadDirField": "Downloads folder (empty = default)",
+  "mdnsField": "Discover contacts on the local network (mDNS)",
+  "saveSettings": "Save",
+  "settingsSaved": "Saved. Changes apply when you reopen the app.",
+  "trayOpen": "Open Enxame",
+  "trayQuit": "Quit",
+  "trayRole": "Role: {role}",
+  "trayUnavailable": "Your desktop may not show the tray icon. If it does not appear, turn off \"Closing the window keeps Enxame running\".",
+  "@fileSavedAt": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "@fileSent": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@fileFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "@trayRole": {
+    "placeholders": {
+      "role": {
+        "type": "String"
+      }
+    }
   }
 }

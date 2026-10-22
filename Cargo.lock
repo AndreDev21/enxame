@@ -1443,6 +1443,7 @@ dependencies = [
  "enxame-core",
  "flutter_rust_bridge",
  "tokio",
+ "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
 ]

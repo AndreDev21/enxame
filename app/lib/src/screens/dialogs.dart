@@ -21,12 +21,19 @@ Future<void> showNoticeDialog(BuildContext context, Notice n) {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (n.items.isNotEmpty) Text(title, style: Theme.of(c).textTheme.titleSmall),
+          if (n.items.isNotEmpty)
+            Text(title, style: Theme.of(c).textTheme.titleSmall),
           if (body != null) ...[const SizedBox(height: 8), Text(body)],
-          for (final i in n.items) Padding(padding: const EdgeInsets.only(top: 4), child: Text('• $i')),
+          for (final i in n.items)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('• $i'),
+            ),
         ],
       ),
-      actions: [FilledButton(onPressed: () => Navigator.pop(c), child: Text(l.ok))],
+      actions: [
+        FilledButton(onPressed: () => Navigator.pop(c), child: Text(l.ok)),
+      ],
     ),
   );
 }
@@ -47,7 +54,9 @@ Future<void> showQrDialog(BuildContext context, String ticket) {
           errorCorrectionLevel: QrErrorCorrectLevel.L,
         ),
       ),
-      actions: [TextButton(onPressed: () => Navigator.pop(c), child: Text(l.close))],
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c), child: Text(l.close)),
+      ],
     ),
   );
 }

@@ -48,6 +48,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FileInfo dco_decode_box_autoadd_file_info(dynamic raw);
 
   @protected
+  Settings dco_decode_box_autoadd_settings(dynamic raw);
+
+  @protected
   ContactContribution dco_decode_contact_contribution(dynamic raw);
 
   @protected
@@ -135,6 +138,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SendResult dco_decode_send_result(dynamic raw);
 
   @protected
+  Settings dco_decode_settings(dynamic raw);
+
+  @protected
   int dco_decode_u_32(dynamic raw);
 
   @protected
@@ -171,6 +177,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FileInfo sse_decode_box_autoadd_file_info(SseDeserializer deserializer);
+
+  @protected
+  Settings sse_decode_box_autoadd_settings(SseDeserializer deserializer);
 
   @protected
   ContactContribution sse_decode_contact_contribution(
@@ -270,6 +279,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SendResult sse_decode_send_result(SseDeserializer deserializer);
 
   @protected
+  Settings sse_decode_settings(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer);
 
   @protected
@@ -316,6 +328,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     FileInfo self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_box_autoadd_settings(Settings self, SseSerializer serializer);
 
   @protected
   void sse_encode_contact_contribution(
@@ -442,6 +457,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_send_result(SendResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_settings(Settings self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

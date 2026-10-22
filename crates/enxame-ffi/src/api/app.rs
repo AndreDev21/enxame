@@ -75,6 +75,8 @@ pub struct MessageInfo {
 pub struct FileItem {
     /// Número para `download_file`.
     pub index: u32,
+    /// Id da mensagem que anunciou o arquivo (liga a lista à conversa).
+    pub message_id: String,
     pub name: String,
     pub size: u64,
     pub mime: String,
@@ -464,6 +466,7 @@ pub async fn files(contact: String) -> Res<Vec<FileItem>> {
         .into_iter()
         .map(|f| FileItem {
             index: f.index as u32,
+            message_id: hex(&f.message_id),
             name: f.name,
             size: f.size,
             mime: f.mime,
@@ -490,6 +493,112 @@ pub async fn download_file(contact: String, index: u32) -> Res<String> {
         .await
         .map_err(err)?;
     Ok(d.path.display().to_string())
+}
+
+// --------------------------------------------------------------------------- configurações
+
+/// Configurações avançadas (nunca no caminho do onboarding). Valem na próxima subida do nó.
+pub struct Settings {
+    /// "default", "disabled" ou uma ou mais URLs separadas por vírgula.
+    pub relay: String,
+    /// CA própria (PEM) para relay com certificado privado.
+    pub relay_ca_file: Option<String>,
+    /// Servidores DNS (IPs). Vazio = automático (sistema, com fallback).
+    pub dns_servers: Vec<String>,
+    /// Pasta de downloads. `None` = `<dados>/downloads`.
+    pub download_dir: Option<String>,
+    pub mdns: bool,
+}
+
+/// Pasta de dados em uso (respeita `ENXAME_DATA_DIR`).
+#[frb(sync)]
+pub fn data_dir() -> String {
+    Config::load(None)
+        .map(|c| c.data_dir)
+        .unwrap_or_else(|_| enxame_core::default_data_dir())
+        .display()
+        .to_string()
+}
+
+pub fn get_settings() -> Res<Settings> {
+    use enxame_core::RelaySetting;
+    let cfg = Config::load(None).map_err(err)?;
+    Ok(Settings {
+        relay: match &cfg.relay {
+            RelaySetting::Default => "default".to_owned(),
+            RelaySetting::Disabled => "disabled".to_owned(),
+            RelaySetting::Custom(u) => u.clone(),
+        },
+        relay_ca_file: cfg.relay_ca_file.map(|p| p.display().to_string()),
+        dns_servers: cfg.dns_servers,
+        download_dir: cfg.download_dir.map(|p| p.display().to_string()),
+        mdns: cfg.mdns,
+    })
+}
+
+/// Valida e grava em `config.toml`, preservando as outras chaves. Entra em vigor ao reabrir o app.
+pub fn save_settings(s: Settings) -> Res<()> {
+    use enxame_core::RelaySetting;
+    let relay = RelaySetting::parse(&s.relay).map_err(err)?;
+    for d in &s.dns_servers {
+        d.parse::<std::net::IpAddr>()
+            .map_err(|_| format!("DNS `{d}` não é um endereço IP"))?;
+    }
+    let cfg = Config::load(None).map_err(err)?;
+    let path = cfg.data_dir.join("config.toml");
+    let mut table: toml::Table = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| t.parse().ok())
+        .unwrap_or_default();
+    match relay {
+        RelaySetting::Default => {
+            table.remove("relay");
+        }
+        RelaySetting::Disabled => {
+            table.insert("relay".into(), "disabled".into());
+        }
+        RelaySetting::Custom(u) => {
+            let mut t = toml::Table::new();
+            t.insert("custom".into(), u.into());
+            table.insert("relay".into(), t.into());
+        }
+    }
+    set_or_remove(
+        &mut table,
+        "relay_ca_file",
+        s.relay_ca_file.filter(|v| !v.trim().is_empty()),
+    );
+    set_or_remove(
+        &mut table,
+        "download_dir",
+        s.download_dir.filter(|v| !v.trim().is_empty()),
+    );
+    if s.dns_servers.is_empty() {
+        table.remove("dns_servers");
+    } else {
+        table.insert(
+            "dns_servers".into(),
+            toml::Value::Array(s.dns_servers.into_iter().map(Into::into).collect()),
+        );
+    }
+    if s.mdns {
+        table.remove("mdns");
+    } else {
+        table.insert("mdns".into(), false.into());
+    }
+    std::fs::create_dir_all(&cfg.data_dir).map_err(err)?;
+    std::fs::write(&path, table.to_string()).map_err(err)
+}
+
+fn set_or_remove(t: &mut toml::Table, key: &str, v: Option<String>) {
+    match v {
+        Some(v) => {
+            t.insert(key.into(), v.trim().to_owned().into());
+        }
+        None => {
+            t.remove(key);
+        }
+    }
 }
 
 // --------------------------------------------------------------------------- contribuição e rede
@@ -653,5 +762,63 @@ pub async fn events(sink: StreamSink<AppEvent>) -> Res<()> {
                 return Ok(());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `save_settings` preserva o resto do arquivo e é lido de volta por `Config::load`.
+    #[test]
+    fn settings_roundtrip_keeps_other_keys() {
+        let dir = std::env::temp_dir().join(format!("enxame-ffi-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("config.toml"),
+            "display_name = \"Ana\"\nmax_file_mb = 10\n",
+        )
+        .unwrap();
+        std::env::set_var("ENXAME_DATA_DIR", &dir);
+        save_settings(Settings {
+            relay: "https://relay.exemplo.test".into(),
+            relay_ca_file: None,
+            dns_servers: vec!["9.9.9.9".into()],
+            download_dir: Some("/tmp/baixados".into()),
+            mdns: false,
+        })
+        .unwrap();
+        let s = get_settings().unwrap();
+        assert_eq!(s.relay, "https://relay.exemplo.test");
+        assert_eq!(s.dns_servers, vec!["9.9.9.9".to_owned()]);
+        assert_eq!(s.download_dir.as_deref(), Some("/tmp/baixados"));
+        assert!(!s.mdns);
+        let cfg = Config::load(None).unwrap();
+        assert_eq!((cfg.display_name.as_str(), cfg.max_file_mb), ("Ana", 10));
+        // Voltar ao padrão remove as chaves.
+        save_settings(Settings {
+            relay: "default".into(),
+            relay_ca_file: None,
+            dns_servers: vec![],
+            download_dir: None,
+            mdns: true,
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+        assert!(
+            !text.contains("relay") && !text.contains("dns_servers"),
+            "{text}"
+        );
+        assert!(text.contains("display_name"));
+        // Entradas inválidas são recusadas sem tocar no arquivo.
+        assert!(save_settings(Settings {
+            relay: "default".into(),
+            relay_ca_file: None,
+            dns_servers: vec!["dns.google".into()],
+            download_dir: None,
+            mdns: true,
+        })
+        .is_err());
+        std::fs::remove_dir_all(dir).ok();
     }
 }

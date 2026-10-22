@@ -304,4 +304,98 @@ class LEn extends L {
   String errorGeneric(String error) {
     return 'Something went wrong: $error';
   }
+
+  @override
+  String get navSettings => 'Settings';
+
+  @override
+  String get attachFile => 'Send a file';
+
+  @override
+  String get dropHere => 'Drop the file here to send it';
+
+  @override
+  String get fileDownload => 'Download';
+
+  @override
+  String fileSavedAt(String path) {
+    return 'Saved to $path';
+  }
+
+  @override
+  String fileSent(String name) {
+    return 'Sending $name…';
+  }
+
+  @override
+  String fileFailed(String error) {
+    return 'File problem: $error';
+  }
+
+  @override
+  String get groupFilesUnsupported => 'Files are not supported in groups yet.';
+
+  @override
+  String get settingsTitle => 'Settings';
+
+  @override
+  String get settingsBehavior => 'Behavior';
+
+  @override
+  String get closeToTray =>
+      'Closing the window keeps Enxame running in the tray';
+
+  @override
+  String get closeToTrayHelp =>
+      'That way your computer keeps helping your contacts. Off, closing the window quits the app.';
+
+  @override
+  String get autostart => 'Open Enxame when the computer starts';
+
+  @override
+  String get autostartHelp => 'Off by default.';
+
+  @override
+  String get advancedTitle => 'Advanced';
+
+  @override
+  String get advancedHelp =>
+      'You do not need to touch this. These options are for people with their own server or a troublesome network. They apply the next time the app opens.';
+
+  @override
+  String get relayField => 'Relay (default, disabled or your relay URL)';
+
+  @override
+  String get relayCaField => 'Relay\'s own CA (PEM file, optional)';
+
+  @override
+  String get dnsField =>
+      'DNS servers (IPs separated by commas; empty = automatic)';
+
+  @override
+  String get downloadDirField => 'Downloads folder (empty = default)';
+
+  @override
+  String get mdnsField => 'Discover contacts on the local network (mDNS)';
+
+  @override
+  String get saveSettings => 'Save';
+
+  @override
+  String get settingsSaved => 'Saved. Changes apply when you reopen the app.';
+
+  @override
+  String get trayOpen => 'Open Enxame';
+
+  @override
+  String get trayQuit => 'Quit';
+
+  @override
+  String trayRole(String role) {
+    return 'Role: $role';
+  }
+
+  @override
+  String get trayUnavailable =>
+      'Your desktop may not show the tray icon. If it does not appear, turn off \"Closing the window keeps Enxame running\".';
 }

@@ -630,6 +630,168 @@ abstract class L {
   /// In pt, this message translates to:
   /// **'Algo deu errado: {error}'**
   String errorGeneric(String error);
+
+  /// No description provided for @navSettings.
+  ///
+  /// In pt, this message translates to:
+  /// **'Configurações'**
+  String get navSettings;
+
+  /// No description provided for @attachFile.
+  ///
+  /// In pt, this message translates to:
+  /// **'Enviar arquivo'**
+  String get attachFile;
+
+  /// No description provided for @dropHere.
+  ///
+  /// In pt, this message translates to:
+  /// **'Solte o arquivo aqui para enviar'**
+  String get dropHere;
+
+  /// No description provided for @fileDownload.
+  ///
+  /// In pt, this message translates to:
+  /// **'Baixar'**
+  String get fileDownload;
+
+  /// No description provided for @fileSavedAt.
+  ///
+  /// In pt, this message translates to:
+  /// **'Salvo em {path}'**
+  String fileSavedAt(String path);
+
+  /// No description provided for @fileSent.
+  ///
+  /// In pt, this message translates to:
+  /// **'Enviando {name}…'**
+  String fileSent(String name);
+
+  /// No description provided for @fileFailed.
+  ///
+  /// In pt, this message translates to:
+  /// **'Falha com o arquivo: {error}'**
+  String fileFailed(String error);
+
+  /// No description provided for @groupFilesUnsupported.
+  ///
+  /// In pt, this message translates to:
+  /// **'Arquivos ainda não são suportados em grupos.'**
+  String get groupFilesUnsupported;
+
+  /// No description provided for @settingsTitle.
+  ///
+  /// In pt, this message translates to:
+  /// **'Configurações'**
+  String get settingsTitle;
+
+  /// No description provided for @settingsBehavior.
+  ///
+  /// In pt, this message translates to:
+  /// **'Comportamento'**
+  String get settingsBehavior;
+
+  /// No description provided for @closeToTray.
+  ///
+  /// In pt, this message translates to:
+  /// **'Fechar a janela mantém o Enxame ativo na bandeja'**
+  String get closeToTray;
+
+  /// No description provided for @closeToTrayHelp.
+  ///
+  /// In pt, this message translates to:
+  /// **'Assim seu computador continua ajudando seus contatos. Desligado, fechar a janela encerra o app.'**
+  String get closeToTrayHelp;
+
+  /// No description provided for @autostart.
+  ///
+  /// In pt, this message translates to:
+  /// **'Abrir o Enxame ao ligar o computador'**
+  String get autostart;
+
+  /// No description provided for @autostartHelp.
+  ///
+  /// In pt, this message translates to:
+  /// **'Desligado por padrão.'**
+  String get autostartHelp;
+
+  /// No description provided for @advancedTitle.
+  ///
+  /// In pt, this message translates to:
+  /// **'Avançado'**
+  String get advancedTitle;
+
+  /// No description provided for @advancedHelp.
+  ///
+  /// In pt, this message translates to:
+  /// **'Você não precisa mexer aqui. Estas opções são para quem usa um servidor próprio ou tem uma rede com problemas. Valem na próxima vez que o app abrir.'**
+  String get advancedHelp;
+
+  /// No description provided for @relayField.
+  ///
+  /// In pt, this message translates to:
+  /// **'Relay (default, disabled ou URL do seu relay)'**
+  String get relayField;
+
+  /// No description provided for @relayCaField.
+  ///
+  /// In pt, this message translates to:
+  /// **'CA própria do relay (arquivo PEM, opcional)'**
+  String get relayCaField;
+
+  /// No description provided for @dnsField.
+  ///
+  /// In pt, this message translates to:
+  /// **'Servidores DNS (IPs separados por vírgula; vazio = automático)'**
+  String get dnsField;
+
+  /// No description provided for @downloadDirField.
+  ///
+  /// In pt, this message translates to:
+  /// **'Pasta de downloads (vazio = padrão)'**
+  String get downloadDirField;
+
+  /// No description provided for @mdnsField.
+  ///
+  /// In pt, this message translates to:
+  /// **'Descobrir contatos na rede local (mDNS)'**
+  String get mdnsField;
+
+  /// No description provided for @saveSettings.
+  ///
+  /// In pt, this message translates to:
+  /// **'Salvar'**
+  String get saveSettings;
+
+  /// No description provided for @settingsSaved.
+  ///
+  /// In pt, this message translates to:
+  /// **'Salvo. As mudanças valem quando você reabrir o app.'**
+  String get settingsSaved;
+
+  /// No description provided for @trayOpen.
+  ///
+  /// In pt, this message translates to:
+  /// **'Abrir o Enxame'**
+  String get trayOpen;
+
+  /// No description provided for @trayQuit.
+  ///
+  /// In pt, this message translates to:
+  /// **'Sair'**
+  String get trayQuit;
+
+  /// No description provided for @trayRole.
+  ///
+  /// In pt, this message translates to:
+  /// **'Papel: {role}'**
+  String trayRole(String role);
+
+  /// No description provided for @trayUnavailable.
+  ///
+  /// In pt, this message translates to:
+  /// **'Sua área de trabalho pode não mostrar o ícone da bandeja. Se não aparecer, desligue \"Fechar a janela mantém o Enxame ativo\".'**
+  String get trayUnavailable;
 }
 
 class _LDelegate extends LocalizationsDelegate<L> {

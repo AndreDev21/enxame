@@ -52,6 +52,9 @@ class AppState extends ChangeNotifier {
   final Map<String, List<MessageInfo>> _messages = {};
   final Map<String, MessageInfo?> _last = {};
   final Map<String, double> transfers = {};
+  final Map<String, FileItem> fileItems = {}; // por id de mensagem
+  final Map<String, String> savedAt = {}; // id de mensagem -> caminho baixado
+  final Map<String, String> fileErrors = {};
   final List<Notice> notices = [];
   StreamSubscription<AppEvent>? _events;
   Timer? _timer;
@@ -60,9 +63,9 @@ class AppState extends ChangeNotifier {
 
   /// Conversas: grupos ativos primeiro e contatos mútuos, pelo nome.
   List<Conversation> get conversations => [
-        ...groups.where((g) => g.active).map(GroupConversation.new),
-        ...contacts.where((c) => c.mutual).map(DmConversation.new),
-      ];
+    ...groups.where((g) => g.active).map(GroupConversation.new),
+    ...contacts.where((c) => c.mutual).map(DmConversation.new),
+  ];
 
   Conversation? get selected {
     for (final c in conversations) {
@@ -101,13 +104,22 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadMessages(Conversation c, {bool notify = true}) async {
     final msgs = switch (c) {
-      DmConversation(:final contact) =>
-        await api.history(contact: contact.fingerprint, limit: 200),
-      GroupConversation(:final group) =>
-        await api.groupHistory(group: group.id, limit: 200),
+      DmConversation(:final contact) => await api.history(
+        contact: contact.fingerprint,
+        limit: 200,
+      ),
+      GroupConversation(:final group) => await api.groupHistory(
+        group: group.id,
+        limit: 200,
+      ),
     };
     _messages[c.key] = msgs;
     _last[c.key] = msgs.isEmpty ? null : msgs.last;
+    if (c is DmConversation && msgs.any((m) => m.file != null)) {
+      for (final f in await api.files(contact: c.contact.fingerprint)) {
+        fileItems[f.messageId] = f;
+      }
+    }
     if (notify) notifyListeners();
   }
 
@@ -163,6 +175,34 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Envia um arquivo ao contato da conversa 1:1 (o grupo ainda não suporta arquivos).
+  Future<String?> sendFile(Conversation c, String path) async {
+    if (c is! DmConversation) return null;
+    try {
+      await api.sendFile(contacts: [c.contact.fingerprint], path: path);
+      await _loadMessages(c);
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
+  }
+
+  /// Baixa o arquivo anunciado por `messageId` e guarda onde foi salvo.
+  Future<void> download(DmConversation c, String messageId) async {
+    final item = fileItems[messageId];
+    if (item == null) return;
+    fileErrors.remove(messageId);
+    try {
+      savedAt[messageId] = await api.downloadFile(
+        contact: c.contact.fingerprint,
+        index: item.index,
+      );
+    } catch (e) {
+      fileErrors[messageId] = e.toString();
+    }
+    await _loadMessages(c);
+  }
+
   Future<GroupInfo> createGroup(String name, List<String> fingerprints) async {
     final g = await api.createGroup(name: name, members: fingerprints);
     await refreshAll();
@@ -184,6 +224,13 @@ class AppState extends ChangeNotifier {
     await api.setContribution(on_: on);
     contributing = on;
     await refreshAll();
+  }
+
+  /// Para o nó e a assinatura de eventos (usado ao sair do app).
+  Future<void> stop() async {
+    await _events?.cancel();
+    _timer?.cancel();
+    await api.stopNode();
   }
 
   @override

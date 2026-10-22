@@ -42,6 +42,10 @@ dependencies:
   freezed_annotation: ^3.1.0
   file_selector: ^1.1.0
   desktop_drop: ^0.8.4
+  tray_manager: ^0.8.0
+  window_manager: ^0.5.2
+  launch_at_startup: ^0.5.1
+  dbus: ^0.7.15
 
 dev_dependencies:
   flutter_test:
@@ -69,6 +73,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/tray_icon.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

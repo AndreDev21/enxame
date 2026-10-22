@@ -47,13 +47,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(Icons.hive_outlined, size: 72, color: t.colorScheme.primary),
+                Icon(
+                  Icons.hive_outlined,
+                  size: 72,
+                  color: t.colorScheme.primary,
+                ),
                 const SizedBox(height: 16),
-                Text(l.onboardingTitle,
-                    textAlign: TextAlign.center, style: t.textTheme.headlineMedium),
+                Text(
+                  l.onboardingTitle,
+                  textAlign: TextAlign.center,
+                  style: t.textTheme.headlineMedium,
+                ),
                 const SizedBox(height: 8),
-                Text(l.onboardingSubtitle,
-                    textAlign: TextAlign.center, style: t.textTheme.bodyLarge),
+                Text(
+                  l.onboardingSubtitle,
+                  textAlign: TextAlign.center,
+                  style: t.textTheme.bodyLarge,
+                ),
                 const SizedBox(height: 28),
                 TextField(
                   controller: _name,
@@ -71,12 +81,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   onPressed: _busy ? null : _go,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text(_busy ? l.onboardingStarting : l.onboardingStart),
+                    child: Text(
+                      _busy ? l.onboardingStarting : l.onboardingStart,
+                    ),
                   ),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(l.startFailed(_error!), style: TextStyle(color: t.colorScheme.error)),
+                  Text(
+                    l.startFailed(_error!),
+                    style: TextStyle(color: t.colorScheme.error),
+                  ),
                 ],
               ],
             ),

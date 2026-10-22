@@ -305,4 +305,99 @@ class LPt extends L {
   String errorGeneric(String error) {
     return 'Algo deu errado: $error';
   }
+
+  @override
+  String get navSettings => 'Configurações';
+
+  @override
+  String get attachFile => 'Enviar arquivo';
+
+  @override
+  String get dropHere => 'Solte o arquivo aqui para enviar';
+
+  @override
+  String get fileDownload => 'Baixar';
+
+  @override
+  String fileSavedAt(String path) {
+    return 'Salvo em $path';
+  }
+
+  @override
+  String fileSent(String name) {
+    return 'Enviando $name…';
+  }
+
+  @override
+  String fileFailed(String error) {
+    return 'Falha com o arquivo: $error';
+  }
+
+  @override
+  String get groupFilesUnsupported =>
+      'Arquivos ainda não são suportados em grupos.';
+
+  @override
+  String get settingsTitle => 'Configurações';
+
+  @override
+  String get settingsBehavior => 'Comportamento';
+
+  @override
+  String get closeToTray => 'Fechar a janela mantém o Enxame ativo na bandeja';
+
+  @override
+  String get closeToTrayHelp =>
+      'Assim seu computador continua ajudando seus contatos. Desligado, fechar a janela encerra o app.';
+
+  @override
+  String get autostart => 'Abrir o Enxame ao ligar o computador';
+
+  @override
+  String get autostartHelp => 'Desligado por padrão.';
+
+  @override
+  String get advancedTitle => 'Avançado';
+
+  @override
+  String get advancedHelp =>
+      'Você não precisa mexer aqui. Estas opções são para quem usa um servidor próprio ou tem uma rede com problemas. Valem na próxima vez que o app abrir.';
+
+  @override
+  String get relayField => 'Relay (default, disabled ou URL do seu relay)';
+
+  @override
+  String get relayCaField => 'CA própria do relay (arquivo PEM, opcional)';
+
+  @override
+  String get dnsField =>
+      'Servidores DNS (IPs separados por vírgula; vazio = automático)';
+
+  @override
+  String get downloadDirField => 'Pasta de downloads (vazio = padrão)';
+
+  @override
+  String get mdnsField => 'Descobrir contatos na rede local (mDNS)';
+
+  @override
+  String get saveSettings => 'Salvar';
+
+  @override
+  String get settingsSaved =>
+      'Salvo. As mudanças valem quando você reabrir o app.';
+
+  @override
+  String get trayOpen => 'Abrir o Enxame';
+
+  @override
+  String get trayQuit => 'Sair';
+
+  @override
+  String trayRole(String role) {
+    return 'Papel: $role';
+  }
+
+  @override
+  String get trayUnavailable =>
+      'Sua área de trabalho pode não mostrar o ícone da bandeja. Se não aparecer, desligue \"Fechar a janela mantém o Enxame ativo\".';
 }

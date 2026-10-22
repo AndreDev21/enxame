@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'app.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `dns_text`, `err`, `group_of`, `hex`, `identity_of`, `msg_of`, `node`, `save_name`
+// These functions are ignored because they are not marked as `pub`: `dns_text`, `err`, `group_of`, `hex`, `identity_of`, `msg_of`, `node`, `save_name`, `set_or_remove`
 
 /// Pasta de dados padrão deste sistema.
 String defaultDataDir() => RustLib.instance.api.crateApiAppDefaultDataDir();
@@ -107,6 +107,15 @@ Future<String> downloadFile({required String contact, required int index}) =>
       contact: contact,
       index: index,
     );
+
+/// Pasta de dados em uso (respeita `ENXAME_DATA_DIR`).
+String dataDir() => RustLib.instance.api.crateApiAppDataDir();
+
+Future<Settings> getSettings() => RustLib.instance.api.crateApiAppGetSettings();
+
+/// Valida e grava em `config.toml`, preservando as outras chaves. Entra em vigor ao reabrir o app.
+Future<void> saveSettings({required Settings s}) =>
+    RustLib.instance.api.crateApiAppSaveSettings(s: s);
 
 Future<String> role() => RustLib.instance.api.crateApiAppRole();
 
@@ -356,6 +365,9 @@ class FileInfo {
 class FileItem {
   /// Número para `download_file`.
   final int index;
+
+  /// Id da mensagem que anunciou o arquivo (liga a lista à conversa).
+  final String messageId;
   final String name;
   final BigInt size;
   final String mime;
@@ -366,6 +378,7 @@ class FileItem {
 
   const FileItem({
     required this.index,
+    required this.messageId,
     required this.name,
     required this.size,
     required this.mime,
@@ -376,6 +389,7 @@ class FileItem {
   @override
   int get hashCode =>
       index.hashCode ^
+      messageId.hashCode ^
       name.hashCode ^
       size.hashCode ^
       mime.hashCode ^
@@ -388,6 +402,7 @@ class FileItem {
       other is FileItem &&
           runtimeType == other.runtimeType &&
           index == other.index &&
+          messageId == other.messageId &&
           name == other.name &&
           size == other.size &&
           mime == other.mime &&
@@ -635,4 +650,47 @@ class SendResult {
           runtimeType == other.runtimeType &&
           delivered == other.delivered &&
           carriers == other.carriers;
+}
+
+/// Configurações avançadas (nunca no caminho do onboarding). Valem na próxima subida do nó.
+class Settings {
+  /// "default", "disabled" ou uma ou mais URLs separadas por vírgula.
+  final String relay;
+
+  /// CA própria (PEM) para relay com certificado privado.
+  final String? relayCaFile;
+
+  /// Servidores DNS (IPs). Vazio = automático (sistema, com fallback).
+  final List<String> dnsServers;
+
+  /// Pasta de downloads. `None` = `<dados>/downloads`.
+  final String? downloadDir;
+  final bool mdns;
+
+  const Settings({
+    required this.relay,
+    this.relayCaFile,
+    required this.dnsServers,
+    this.downloadDir,
+    required this.mdns,
+  });
+
+  @override
+  int get hashCode =>
+      relay.hashCode ^
+      relayCaFile.hashCode ^
+      dnsServers.hashCode ^
+      downloadDir.hashCode ^
+      mdns.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Settings &&
+          runtimeType == other.runtimeType &&
+          relay == other.relay &&
+          relayCaFile == other.relayCaFile &&
+          dnsServers == other.dnsServers &&
+          downloadDir == other.downloadDir &&
+          mdns == other.mdns;
 }

@@ -8,7 +8,11 @@ import 'dialogs.dart';
 
 /// Contatos: meu convite, adicionar por convite, pedidos recebidos e a lista.
 class ContactsScreen extends StatefulWidget {
-  const ContactsScreen({super.key, required this.state, required this.onOpenChat});
+  const ContactsScreen({
+    super.key,
+    required this.state,
+    required this.onOpenChat,
+  });
   final AppState state;
   final void Function(Conversation) onOpenChat;
 
@@ -95,16 +99,26 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     Text(l.requestFrom(r.name), style: t.textTheme.titleSmall),
                     const SizedBox(height: 4),
                     Text(l.requestVerify),
-                    SelectableText(r.fingerprint,
-                        style: t.textTheme.titleMedium?.copyWith(fontFamily: 'monospace')),
+                    SelectableText(
+                      r.fingerprint,
+                      style: t.textTheme.titleMedium?.copyWith(
+                        fontFamily: 'monospace',
+                      ),
+                    ),
                     const SizedBox(height: 8),
-                    Row(children: [
-                      FilledButton(
-                          onPressed: () => s.respond(r, true), child: Text(l.accept)),
-                      const SizedBox(width: 8),
-                      OutlinedButton(
-                          onPressed: () => s.respond(r, false), child: Text(l.reject)),
-                    ]),
+                    Row(
+                      children: [
+                        FilledButton(
+                          onPressed: () => s.respond(r, true),
+                          child: Text(l.accept),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton(
+                          onPressed: () => s.respond(r, false),
+                          child: Text(l.reject),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -121,16 +135,21 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 const SizedBox(height: 4),
                 Text(l.myInviteHelp),
                 const SizedBox(height: 12),
-                Wrap(spacing: 8, children: [
-                  FilledButton.icon(
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    FilledButton.icon(
                       onPressed: _copy,
                       icon: const Icon(Icons.copy),
-                      label: Text(l.copyInvite)),
-                  OutlinedButton.icon(
+                      label: Text(l.copyInvite),
+                    ),
+                    OutlinedButton.icon(
                       onPressed: _qr,
                       icon: const Icon(Icons.qr_code_2),
-                      label: Text(l.showQr)),
-                ]),
+                      label: Text(l.showQr),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -162,11 +181,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2))
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Icon(Icons.person_add),
                   label: Text(l.sendRequest),
                 ),
-                if (_message != null) ...[const SizedBox(height: 8), Text(_message!)],
+                if (_message != null) ...[
+                  const SizedBox(height: 8),
+                  Text(_message!),
+                ],
               ],
             ),
           ),
@@ -177,11 +200,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
         else
           for (final c in s.contacts)
             ListTile(
-              leading: CircleAvatar(child: Text(c.name.isEmpty ? '?' : c.name[0].toUpperCase())),
+              leading: CircleAvatar(
+                child: Text(c.name.isEmpty ? '?' : c.name[0].toUpperCase()),
+              ),
               title: Text(c.name),
               subtitle: Text('${l.fingerprintLabel}: ${c.fingerprint}'),
               trailing: c.mutual ? null : Chip(label: Text(l.contactPending)),
-              onTap: c.mutual ? () => widget.onOpenChat(DmConversation(c)) : null,
+              onTap: c.mutual
+                  ? () => widget.onOpenChat(DmConversation(c))
+                  : null,
             ),
       ],
     );

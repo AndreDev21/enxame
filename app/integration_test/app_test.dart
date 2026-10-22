@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:enxame_app/src/app.dart';
 import 'package:enxame_app/src/native_lib.dart';
+import 'package:enxame_app/src/rust/api/app.dart' as api;
 import 'package:enxame_app/src/rust/frb_generated.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,7 +26,11 @@ void main() {
     await tester.enterText(find.byType(TextField), 'Teste');
     await tester.tap(find.byType(FilledButton));
     // O núcleo sobe de verdade (identidade, banco, endpoint): dá tempo.
-    for (var i = 0; i < 100 && find.byType(NavigationRail).evaluate().isEmpty; i++) {
+    for (
+      var i = 0;
+      i < 100 && find.byType(NavigationRail).evaluate().isEmpty;
+      i++
+    ) {
       await tester.pump(const Duration(milliseconds: 200));
     }
     expect(find.byType(NavigationRail), findsOneWidget);
@@ -40,7 +45,11 @@ void main() {
     expect(find.byIcon(Icons.qr_code_2), findsOneWidget);
     await tester.tap(find.byIcon(Icons.qr_code_2));
     // O convite é gerado pelo núcleo (endereços e relay): pode levar alguns segundos.
-    for (var i = 0; i < 100 && find.byType(AlertDialog).evaluate().isEmpty; i++) {
+    for (
+      var i = 0;
+      i < 100 && find.byType(AlertDialog).evaluate().isEmpty;
+      i++
+    ) {
       await tester.pump(const Duration(milliseconds: 200));
     }
     expect(find.byType(AlertDialog), findsOneWidget);
@@ -65,7 +74,8 @@ void main() {
 
     // Pareia com um `enxame-cli serve` de verdade (outra identidade, mesma máquina) e troca
     // uma mensagem: o app adiciona o convite, o CLI aceita sozinho, o app envia e o CLI guarda.
-    final cli = Platform.environment['ENXAME_CLI'] ??
+    final cli =
+        Platform.environment['ENXAME_CLI'] ??
         '${Directory.current.path}/../target/release/enxame-cli';
     final peerDir = Directory.systemTemp.createTempSync('enxame-peer');
     final env = {
@@ -74,17 +84,26 @@ void main() {
       'ENXAME_MDNS': '0',
     };
     await Process.run(cli, ['init', '--name', 'Beto'], environment: env);
-    final serve = await Process.start(cli, ['serve', '--auto-accept'], environment: env);
+    final serve = await Process.start(cli, [
+      'serve',
+      '--auto-accept',
+    ], environment: env);
     addTearDown(() {
       serve.kill();
       peerDir.deleteSync(recursive: true);
     });
     final ticketReady = Completer<String>();
-    serve.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
-      if (line.startsWith('enxame1') && !ticketReady.isCompleted) ticketReady.complete(line.trim());
-    });
+    serve.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen(
+      (line) {
+        if (line.startsWith('enxame1') && !ticketReady.isCompleted) {
+          ticketReady.complete(line.trim());
+        }
+      },
+    );
     serve.stderr.drain<void>();
-    final ticket = await ticketReady.future.timeout(const Duration(seconds: 60));
+    final ticket = await ticketReady.future.timeout(
+      const Duration(seconds: 60),
+    );
 
     await tester.tap(find.byIcon(Icons.people_outline));
     await tester.pumpAndSettle();
@@ -98,7 +117,10 @@ void main() {
     // Abre a conversa e envia.
     await tester.tap(find.text('Beto').last);
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'oi do app, vinda do teste');
+    await tester.enterText(
+      find.byType(TextField).last,
+      'oi do app, vinda do teste',
+    );
     await tester.tap(find.byIcon(Icons.send));
     for (var i = 0; i < 50; i++) {
       await tester.pump(const Duration(milliseconds: 200));
@@ -113,5 +135,57 @@ void main() {
       if (!seen) await tester.pump(const Duration(milliseconds: 500));
     }
     expect(seen, isTrue, reason: 'a mensagem chegou ao CLI');
+
+    // Arquivo: o app envia (mesma chamada do botão e do arrastar-e-soltar) e o CLI baixa dele.
+    final src = File('${peerDir.path}/origem.bin')
+      ..writeAsBytesSync(
+        List<int>.generate(3 * 1024 * 1024 + 123, (i) => (i * 31 + 7) & 0xff),
+      );
+    await api.sendFile(
+      contacts: [
+        (await api.contacts()).firstWhere((c) => c.name == 'Beto').fingerprint,
+      ],
+      path: src.path,
+    );
+    serve.kill(); // um processo por identidade: o `get` abaixo sobe o nó do CLI
+    await serve.exitCode;
+    final out = Directory('${peerDir.path}/baixados')..createSync();
+    ProcessResult? got;
+    for (var i = 0; i < 20; i++) {
+      got = await Process.run(cli, [
+        'get',
+        'Teste',
+        '1',
+        '--out',
+        out.path,
+      ], environment: env);
+      if (got.exitCode == 0) break;
+      await tester.pump(const Duration(seconds: 1));
+    }
+    expect(
+      got?.exitCode,
+      0,
+      reason: 'o CLI baixou o arquivo: ${got?.stderr} ${got?.stdout}',
+    );
+    final dl = File('${out.path}/origem.bin');
+    expect(dl.existsSync(), isTrue);
+    expect(
+      dl.readAsBytesSync(),
+      equals(src.readAsBytesSync()),
+      reason: 'conteúdo idêntico',
+    );
+
+    // Configurações: abre a tela e salva (relay/DNS manual só valem na próxima subida).
+    await tester.tap(find.byIcon(Icons.settings_outlined));
+    await tester.pumpAndSettle();
+    expect(find.byType(SwitchListTile), findsWidgets);
+    await tester.tap(find.byType(ExpansionTile));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(2), '1.1.1.1, 8.8.8.8');
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pumpAndSettle();
+    final cfg = File('${Platform.environment['ENXAME_DATA_DIR']}/config.toml')
+        .readAsStringSync();
+    expect(cfg, contains('1.1.1.1'));
   });
 }

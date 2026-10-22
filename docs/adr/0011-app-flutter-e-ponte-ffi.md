@@ -23,8 +23,22 @@ Status: aceito (Fase 6, bloco 6.2).
 6. **Pacotes:** `file_selector` (oficial) e `desktop_drop` 0.8.x (a 0.9 exige `cross_file` 0.4,
    incompatível com o resto do ecossistema hoje), `qr_flutter`, `freezed` (exigido pelo codegen para
    o enum de eventos). `file_picker` foi descartado por conflito de versões.
-7. **Bandeja do sistema** (`tray_manager`), arrastar e soltar e autostart ficam no bloco 6.3;
-   chamadas no 6.4.
+7. **Bloco 6.3 (arquivos, bandeja, configurações):**
+   - Arquivos: botão de anexar (`file_selector`) e arrastar e soltar (`desktop_drop`) na conversa 1:1; o
+     balão mostra nome/tamanho, botão de baixar e onde foi salvo; progresso pelos eventos. **Grupos
+     ainda não enviam arquivos** (o núcleo só tem `send_file_to` para contatos): o botão fica
+     desligado nos grupos.
+   - Bandeja: `tray_manager` 0.8 (API nativa, StatusNotifierItem sobre D-Bus) + `window_manager`
+     (`setPreventClose`). Fechar a janela esconde e mantém o nó ativo. **No Linux só se cria a
+     bandeja se houver um host (`org.kde.StatusNotifierWatcher` no D-Bus)**; sem ele esconder a
+     janela a deixaria sem volta, então fechar encerra o app e a tela de configurações avisa.
+   - Menu da bandeja: papel atual, abrir, modo jogo, contribuir, sair.
+   - Autostart opcional (`launch_at_startup`; arquivo `.desktop` no Linux), desligado por padrão.
+   - Configurações avançadas (relay próprio, CA, DNS manual, pasta de downloads, mDNS) gravadas em
+     `config.toml` pelo `save_settings` (preserva as outras chaves; valem na próxima subida). A
+     preferência "fechar mantém ativo" fica em `<dados>/ui.json`.
+   - Ícone da bandeja: hexágono âmbar gerado (`app/assets/tray_icon.png`), provisório.
+   Chamadas ficam no 6.4.
 
 ## Consequências
 

@@ -158,5 +158,60 @@
         "type": "String"
       }
     }
-  }
+  },
+  "navSettings": "Configurações",
+  "attachFile": "Enviar arquivo",
+  "dropHere": "Solte o arquivo aqui para enviar",
+  "fileDownload": "Baixar",
+  "fileSavedAt": "Salvo em {path}",
+  "@fileSavedAt": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "fileSent": "Enviando {name}…",
+  "@fileSent": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileFailed": "Falha com o arquivo: {error}",
+  "@fileFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "groupFilesUnsupported": "Arquivos ainda não são suportados em grupos.",
+  "settingsTitle": "Configurações",
+  "settingsBehavior": "Comportamento",
+  "closeToTray": "Fechar a janela mantém o Enxame ativo na bandeja",
+  "closeToTrayHelp": "Assim seu computador continua ajudando seus contatos. Desligado, fechar a janela encerra o app.",
+  "autostart": "Abrir o Enxame ao ligar o computador",
+  "autostartHelp": "Desligado por padrão.",
+  "advancedTitle": "Avançado",
+  "advancedHelp": "Você não precisa mexer aqui. Estas opções são para quem usa um servidor próprio ou tem uma rede com problemas. Valem na próxima vez que o app abrir.",
+  "relayField": "Relay (default, disabled ou URL do seu relay)",
+  "relayCaField": "CA própria do relay (arquivo PEM, opcional)",
+  "dnsField": "Servidores DNS (IPs separados por vírgula; vazio = automático)",
+  "downloadDirField": "Pasta de downloads (vazio = padrão)",
+  "mdnsField": "Descobrir contatos na rede local (mDNS)",
+  "saveSettings": "Salvar",
+  "settingsSaved": "Salvo. As mudanças valem quando você reabrir o app.",
+  "trayOpen": "Abrir o Enxame",
+  "trayQuit": "Sair",
+  "trayRole": "Papel: {role}",
+  "@trayRole": {
+    "placeholders": {
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "trayUnavailable": "Sua área de trabalho pode não mostrar o ícone da bandeja. Se não aparecer, desligue \"Fechar a janela mantém o Enxame ativo\"."
 }

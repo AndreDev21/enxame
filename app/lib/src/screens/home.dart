@@ -6,14 +6,17 @@ import 'chat.dart';
 import 'contacts.dart';
 import 'contribution.dart';
 import 'diagnostics.dart';
+import '../desktop.dart';
 import 'dialogs.dart';
+import 'settings.dart';
 
-enum _Section { chats, contacts, contribution, diagnostics }
+enum _Section { chats, contacts, contribution, diagnostics, settings }
 
 /// Janela principal: trilho de navegação à esquerda e a seção escolhida à direita.
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.state});
+  const HomeScreen({super.key, required this.state, this.shell});
   final AppState state;
+  final DesktopShell? shell;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -54,11 +57,15 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationRail(
             selectedIndex: _section.index,
             labelType: NavigationRailLabelType.all,
-            onDestinationSelected: (i) => setState(() => _section = _Section.values[i]),
+            onDestinationSelected: (i) =>
+                setState(() => _section = _Section.values[i]),
             leading: Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Icon(Icons.hive_outlined,
-                  size: 32, color: Theme.of(context).colorScheme.primary),
+              child: Icon(
+                Icons.hive_outlined,
+                size: 32,
+                color: Theme.of(context).colorScheme.primary,
+              ),
             ),
             destinations: [
               NavigationRailDestination(
@@ -85,6 +92,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 selectedIcon: const Icon(Icons.network_check),
                 label: Text(l.navDiagnostics),
               ),
+              NavigationRailDestination(
+                icon: const Icon(Icons.settings_outlined),
+                selectedIcon: const Icon(Icons.settings),
+                label: Text(l.navSettings),
+              ),
             ],
           ),
           const VerticalDivider(width: 1),
@@ -93,18 +105,20 @@ class _HomeScreenState extends State<HomeScreen> {
               listenable: s,
               builder: (context, _) => switch (_section) {
                 _Section.chats => ChatsView(
-                    state: s,
-                    onAddContact: () => setState(() => _section = _Section.contacts),
-                  ),
+                  state: s,
+                  onAddContact: () =>
+                      setState(() => _section = _Section.contacts),
+                ),
                 _Section.contacts => ContactsScreen(
-                    state: s,
-                    onOpenChat: (c) {
-                      s.select(c);
-                      setState(() => _section = _Section.chats);
-                    },
-                  ),
+                  state: s,
+                  onOpenChat: (c) {
+                    s.select(c);
+                    setState(() => _section = _Section.chats);
+                  },
+                ),
                 _Section.contribution => ContributionScreen(state: s),
                 _Section.diagnostics => const DiagnosticsScreen(),
+                _Section.settings => SettingsScreen(shell: widget.shell),
               },
             ),
           ),
