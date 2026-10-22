@@ -1,6 +1,9 @@
 # enxame-node: build a partir da raiz do repositório (contexto = ..).
 FROM rust:1-bookworm AS build
 WORKDIR /src
+# Limita a paralelização para não esgotar a RAM em máquinas modestas.
+ARG CARGO_BUILD_JOBS=4
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
 COPY . .
 RUN cargo build --release --locked -p enxame-node
 

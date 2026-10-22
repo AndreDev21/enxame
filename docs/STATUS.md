@@ -25,19 +25,17 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
 
 Último commit de código: `ea59a9d` (correções de campo da Fase 4).
 
-## Amanhã, nesta ordem
+## Próximos passos, nesta ordem
 
 1. ~~Teste de campo da Fase 4~~ **feito** (2026-10-22, com bob, notebook Windows no 4G e jean): ver
    `reports/fase4-arquivos.md`. Pendências menores: progresso da retomada começa em 0%, o `/enviar`
    do chat não informa carriers, e a andrecasa (outra cidade) ainda não rodou a Fase 4.
-2. **Reconstruir e validar a imagem Docker do `enxame-node` com suporte a arquivos**
-   (`deploy/`; a última validação foi na Fase 3, antes de `iroh-blobs`). Idem `docker compose`.
-3. **Fase 5 — grupos pequenos (≤ 20)**, seção 13 da spec: `GroupOp` (só o criador adiciona/remove),
-   fan-out por membro, membros como carriers entre si, aviso de IP ao entrar. Aceite: grupo de 5
-   nós in-process, add/remove, removido não decifra mensagens novas, carry entre membros. Atenção
-   aos arquivos em grupo (download de qualquer membro que tenha o blob) e ao `Heads`/`digest` por
-   conversa de grupo (a sessão já aceita várias conversas em comum).
-4. Depois: Fase 6 (app Flutter) — leia o princípio abaixo.
+2. ~~Reconstruir e validar a imagem Docker do `enxame-node`~~ **feito** (2026-10-22): imagem de 121 MB,
+   `scripts/e2e/node-image.sh` passa (mensagem + arquivo de 6 MB servidos pelo contêiner com o remetente
+   offline), healthcheck `healthy` em ~20 s, uso de ~7 MiB de RAM em repouso, `docker compose config` válido.
+   Não testado: relay próprio com Let's Encrypt (precisa de domínio) e grupos via contêiner.
+3. ~~Fase 5 — grupos pequenos~~ **feita e validada em campo** (`reports/fase5-grupos.md`); aguarda revisão.
+4. Próxima: Fase 6 (app Flutter) — leia o princípio abaixo.
 
 ## Princípio de produto (decidido nesta sessão)
 

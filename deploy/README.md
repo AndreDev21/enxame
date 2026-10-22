@@ -51,3 +51,18 @@ nesse diretório). Clientes com CA privada configuram `relay_ca_file`/`ENXAME_RE
   `MAX_CONTRIB_KBPS` e `MAX_CONTRIB_GB_MONTH`; guarda de terceiros por `CARRY_QUOTA_MB_TOTAL`.
 - **Atualizar:** `git pull && docker compose up -d --build`.
 - **Logs:** `docker compose logs -f node` (nunca contêm texto de mensagem nem chaves).
+
+## Verificar a imagem do nó
+
+Com a imagem construída (`docker build -f deploy/Dockerfile.node -t enxame/node:local .`) e o CLI
+compilado (`cargo build --release -p enxame-cli`), o script abaixo sobe o contêiner em localhost e
+confere ponta a ponta: A manda texto e um arquivo a B (offline), o contêiner guarda o aviso e
+replica o arquivo, A sai da rede e B baixa o arquivo **só do contêiner** (hash confere).
+
+```bash
+scripts/e2e/node-image.sh
+```
+
+O healthcheck do Docker (`enxame-node health`) só olha a idade do arquivo `/data/health`, que tem
+o resumo (`role`, `contacts`, `carry_items`, `bytes_served_month`): `docker exec <contêiner> cat /data/health`.
+Em máquinas com pouca RAM, limite a compilação: `docker build --build-arg CARGO_BUILD_JOBS=2 ...`.
