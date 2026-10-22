@@ -1,14 +1,30 @@
 [package]
 name = "enxame-ffi"
-description = "API do Enxame exposta ao Flutter (flutter_rust_bridge v2, a partir da Fase 6)."
+description = "API do Enxame exposta ao Flutter (flutter_rust_bridge v2)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
-[dependencies]
-enxame-core.workspace = true
+[lib]
+crate-type = ["cdylib", "rlib"]
 
-[lints]
-workspace = true
+[dependencies]
+enxame-core = { workspace = true, features = ["os-keyring"] }
+# Versão fixada: o codegen (flutter_rust_bridge_codegen) e o pacote Dart têm de ser a mesma.
+flutter_rust_bridge = "=2.13.0"
+data-encoding.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# O código gerado pelo flutter_rust_bridge usa `unsafe` (símbolos `extern "C"`). O workspace
+# proíbe `unsafe`; aqui só se rebaixa para `deny` e o módulo gerado recebe `allow` (lib.rs).
+[lints.rust]
+unsafe_code = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"

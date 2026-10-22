@@ -38,7 +38,8 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
 4. **Fase 6 em andamento** (spec 13): blocos
    - 6.1 DNS automático — **feito** (ADR 0010);
    - 6.2 ponte `enxame-ffi` (frb 2.13.0) e app Linux básico: onboarding, contatos (ticket/QR), conversas
-     1:1 e de grupo, chat, painel de contribuição, diagnóstico;
+     1:1 e de grupo, chat, painel de contribuição, diagnóstico — **feito** (ADR 0011; teste de ponta a
+     ponta com o CLI passa; falta o olho humano na interface);
    - 6.3 arquivos (arrastar e soltar), bandeja, modo jogo, autostart;
    - **6.4 chamadas 1:1: áudio, vídeo e transmissão de tela** (`flutter_webrtc`, sinalização `CallSignal`
      E2E; captura Wayland/PipeWire e X11; ver spec Fase 6 e decisão 5 sobre TURN);

@@ -497,6 +497,11 @@ impl Enxame {
         })
     }
 
+    /// Como o DNS foi escolhido nesta subida (sistema, manual ou fallback automático).
+    pub fn dns_choice(&self) -> crate::DnsChoice {
+        self.inner.dns.clone()
+    }
+
     /// Papel atual deste nó.
     pub fn role(&self) -> Role {
         self.inner.role()

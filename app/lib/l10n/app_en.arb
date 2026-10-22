@@ -1,0 +1,162 @@
+{
+  "@@locale": "en",
+  "appName": "Enxame",
+  "onboardingTitle": "Welcome to Enxame",
+  "onboardingSubtitle": "Chat and share files directly between friends, with no server in the middle. Just pick a name.",
+  "onboardingNameLabel": "What should people call you?",
+  "onboardingStart": "Get started",
+  "onboardingStarting": "Setting up your node…",
+  "startFailed": "Could not start: {error}",
+  "navChats": "Chats",
+  "navContacts": "Contacts",
+  "navContribution": "Contribution",
+  "navDiagnostics": "Diagnostics",
+  "noChats": "No chats yet. Add a contact to get started.",
+  "pickChat": "Pick a conversation",
+  "newGroup": "New group",
+  "groupNameLabel": "Group name",
+  "groupMembersLabel": "Members",
+  "create": "Create",
+  "cancel": "Cancel",
+  "close": "Close",
+  "ok": "Got it",
+  "groupNeedsContacts": "You need at least one contact to create a group.",
+  "groupBadge": "group",
+  "typeMessage": "Type a message",
+  "send": "Send",
+  "sendFailed": "Failed to send: {error}",
+  "deliveredHint": "delivered",
+  "pendingHint": "waiting for delivery",
+  "noMessages": "No messages yet. Say hi!",
+  "you": "you",
+  "myInvite": "My invite",
+  "myInviteHelp": "Send this invite to whoever you want as a contact. It is valid for a few hours and they only join if you accept.",
+  "copyInvite": "Copy invite",
+  "inviteCopied": "Invite copied",
+  "showQr": "Show QR",
+  "addContact": "Add contact",
+  "addContactHelp": "Paste the invite the other person sent you.",
+  "inviteLabel": "Invite (enxame1…)",
+  "sendRequest": "Send request",
+  "waitingAcceptance": "Request sent. Waiting for the other person to accept…",
+  "contactAdded": "{name} is now your contact.",
+  "contactRejected": "The other person declined the request.",
+  "contactAlready": "That person is already your contact.",
+  "requestsTitle": "Contact requests",
+  "requestFrom": "{name} wants to be your contact",
+  "requestVerify": "Confirm this fingerprint with the person through another channel before accepting:",
+  "accept": "Accept",
+  "reject": "Decline",
+  "contactsTitle": "Contacts",
+  "noContacts": "You have no contacts yet.",
+  "contactPending": "waiting",
+  "fingerprintLabel": "Fingerprint",
+  "contributionTitle": "Contribution to the network",
+  "contributionHelp": "Your computer helps your contacts by holding messages and files while they are offline. Everything is encrypted: you cannot read what you carry.",
+  "roleLabel": "Current role",
+  "gameMode": "Game mode",
+  "gameModeHelp": "Pauses all contribution while you game or use lots of CPU/network.",
+  "contribute": "Contribute to the network",
+  "contributeHelp": "Off means you only use the network and help nobody.",
+  "servedThisMonth": "Served this month",
+  "carrying": "Holding for contacts",
+  "itemsDelivered": "Deliveries made",
+  "byContact": "Who you helped",
+  "nobodyYet": "Nobody yet.",
+  "messagesUnit": "{n} messages",
+  "diagnosticsTitle": "Network diagnostics",
+  "runDiagnostics": "Run diagnostics",
+  "running": "Measuring…",
+  "dnsLabel": "DNS",
+  "natLabel": "NAT",
+  "relayLabel": "Preferred relay",
+  "pathDirect": "direct",
+  "pathRelay": "via relay",
+  "pathMixed": "mixed",
+  "pathUnknown": "unknown",
+  "unreachable": "unreachable",
+  "noContactsToProbe": "No contacts to probe.",
+  "groupInfo": "Group info",
+  "groupCreator": "Created by {name}",
+  "seesYourIp": "sees your IP",
+  "ipWarningTitle": "Heads-up: your IP is visible in the group",
+  "ipWarningBody": "This group has people who are not your contacts. They will see your network address (IP), and you will see theirs:",
+  "joinedGroup": "You joined the group {name}",
+  "removedFromGroup": "You were removed from the group {name}",
+  "notInGroup": "You are no longer in this group.",
+  "addMember": "Add member",
+  "removeMember": "Remove",
+  "renameGroup": "Rename",
+  "offlineMembers": "Offline now: {names}",
+  "errorGeneric": "Something went wrong: {error}",
+  "@startFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "@sendFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "@contactAdded": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@requestFrom": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@messagesUnit": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "@groupCreator": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@joinedGroup": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@removedFromGroup": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@offlineMembers": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "@errorGeneric": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  }
+}

@@ -1,0 +1,308 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+
+import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for Portuguese (`pt`).
+class LPt extends L {
+  LPt([String locale = 'pt']) : super(locale);
+
+  @override
+  String get appName => 'Enxame';
+
+  @override
+  String get onboardingTitle => 'Bem-vindo ao Enxame';
+
+  @override
+  String get onboardingSubtitle =>
+      'Conversas e arquivos direto entre amigos, sem servidor no meio. Basta escolher um nome.';
+
+  @override
+  String get onboardingNameLabel => 'Como você quer ser chamado?';
+
+  @override
+  String get onboardingStart => 'Começar';
+
+  @override
+  String get onboardingStarting => 'Preparando seu nó…';
+
+  @override
+  String startFailed(String error) {
+    return 'Não foi possível iniciar: $error';
+  }
+
+  @override
+  String get navChats => 'Conversas';
+
+  @override
+  String get navContacts => 'Contatos';
+
+  @override
+  String get navContribution => 'Contribuição';
+
+  @override
+  String get navDiagnostics => 'Diagnóstico';
+
+  @override
+  String get noChats =>
+      'Nenhuma conversa ainda. Adicione um contato para começar.';
+
+  @override
+  String get pickChat => 'Escolha uma conversa';
+
+  @override
+  String get newGroup => 'Novo grupo';
+
+  @override
+  String get groupNameLabel => 'Nome do grupo';
+
+  @override
+  String get groupMembersLabel => 'Membros';
+
+  @override
+  String get create => 'Criar';
+
+  @override
+  String get cancel => 'Cancelar';
+
+  @override
+  String get close => 'Fechar';
+
+  @override
+  String get ok => 'Entendi';
+
+  @override
+  String get groupNeedsContacts =>
+      'Você precisa de pelo menos um contato para criar um grupo.';
+
+  @override
+  String get groupBadge => 'grupo';
+
+  @override
+  String get typeMessage => 'Escreva uma mensagem';
+
+  @override
+  String get send => 'Enviar';
+
+  @override
+  String sendFailed(String error) {
+    return 'Falha ao enviar: $error';
+  }
+
+  @override
+  String get deliveredHint => 'entregue';
+
+  @override
+  String get pendingHint => 'aguardando entrega';
+
+  @override
+  String get noMessages => 'Nenhuma mensagem ainda. Diga oi!';
+
+  @override
+  String get you => 'você';
+
+  @override
+  String get myInvite => 'Meu convite';
+
+  @override
+  String get myInviteHelp =>
+      'Mande este convite para quem você quer como contato. Ele vale por algumas horas e a pessoa só entra se você aceitar.';
+
+  @override
+  String get copyInvite => 'Copiar convite';
+
+  @override
+  String get inviteCopied => 'Convite copiado';
+
+  @override
+  String get showQr => 'Mostrar QR';
+
+  @override
+  String get addContact => 'Adicionar contato';
+
+  @override
+  String get addContactHelp => 'Cole o convite que a outra pessoa mandou.';
+
+  @override
+  String get inviteLabel => 'Convite (enxame1…)';
+
+  @override
+  String get sendRequest => 'Enviar pedido';
+
+  @override
+  String get waitingAcceptance =>
+      'Pedido enviado. Aguardando a outra pessoa aceitar…';
+
+  @override
+  String contactAdded(String name) {
+    return '$name agora é seu contato.';
+  }
+
+  @override
+  String get contactRejected => 'A outra pessoa recusou o pedido.';
+
+  @override
+  String get contactAlready => 'Essa pessoa já é seu contato.';
+
+  @override
+  String get requestsTitle => 'Pedidos de contato';
+
+  @override
+  String requestFrom(String name) {
+    return '$name quer ser seu contato';
+  }
+
+  @override
+  String get requestVerify =>
+      'Confirme esta impressão digital com a pessoa por outro canal antes de aceitar:';
+
+  @override
+  String get accept => 'Aceitar';
+
+  @override
+  String get reject => 'Recusar';
+
+  @override
+  String get contactsTitle => 'Contatos';
+
+  @override
+  String get noContacts => 'Você ainda não tem contatos.';
+
+  @override
+  String get contactPending => 'aguardando';
+
+  @override
+  String get fingerprintLabel => 'Impressão digital';
+
+  @override
+  String get contributionTitle => 'Contribuição para a rede';
+
+  @override
+  String get contributionHelp =>
+      'Seu computador ajuda seus contatos guardando mensagens e arquivos enquanto eles estão offline. Tudo cifrado: você não lê nada do que carrega.';
+
+  @override
+  String get roleLabel => 'Papel atual';
+
+  @override
+  String get gameMode => 'Modo jogo';
+
+  @override
+  String get gameModeHelp =>
+      'Pausa toda a contribuição enquanto você joga ou usa muita CPU/rede.';
+
+  @override
+  String get contribute => 'Contribuir com a rede';
+
+  @override
+  String get contributeHelp =>
+      'Desligado, você só usa a rede e não ajuda ninguém.';
+
+  @override
+  String get servedThisMonth => 'Servido neste mês';
+
+  @override
+  String get carrying => 'Guardando para contatos';
+
+  @override
+  String get itemsDelivered => 'Entregas feitas';
+
+  @override
+  String get byContact => 'Quem você ajudou';
+
+  @override
+  String get nobodyYet => 'Ninguém ainda.';
+
+  @override
+  String messagesUnit(int n) {
+    return '$n mensagens';
+  }
+
+  @override
+  String get diagnosticsTitle => 'Diagnóstico de rede';
+
+  @override
+  String get runDiagnostics => 'Executar diagnóstico';
+
+  @override
+  String get running => 'Medindo…';
+
+  @override
+  String get dnsLabel => 'DNS';
+
+  @override
+  String get natLabel => 'NAT';
+
+  @override
+  String get relayLabel => 'Relay preferido';
+
+  @override
+  String get pathDirect => 'direto';
+
+  @override
+  String get pathRelay => 'via relay';
+
+  @override
+  String get pathMixed => 'misto';
+
+  @override
+  String get pathUnknown => 'desconhecido';
+
+  @override
+  String get unreachable => 'inacessível';
+
+  @override
+  String get noContactsToProbe => 'Sem contatos para sondar.';
+
+  @override
+  String get groupInfo => 'Informações do grupo';
+
+  @override
+  String groupCreator(String name) {
+    return 'Criado por $name';
+  }
+
+  @override
+  String get seesYourIp => 'vê seu IP';
+
+  @override
+  String get ipWarningTitle => 'Atenção: IP visível no grupo';
+
+  @override
+  String get ipWarningBody =>
+      'Neste grupo há pessoas que não são seus contatos. Elas passam a ver o seu endereço de rede (IP), e você o delas:';
+
+  @override
+  String joinedGroup(String name) {
+    return 'Você entrou no grupo $name';
+  }
+
+  @override
+  String removedFromGroup(String name) {
+    return 'Você foi removido do grupo $name';
+  }
+
+  @override
+  String get notInGroup => 'Você não está mais neste grupo.';
+
+  @override
+  String get addMember => 'Adicionar membro';
+
+  @override
+  String get removeMember => 'Remover';
+
+  @override
+  String get renameGroup => 'Renomear';
+
+  @override
+  String offlineMembers(String names) {
+    return 'Offline agora: $names';
+  }
+
+  @override
+  String errorGeneric(String error) {
+    return 'Algo deu errado: $error';
+  }
+}

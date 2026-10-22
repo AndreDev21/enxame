@@ -1,0 +1,162 @@
+{
+  "@@locale": "pt",
+  "appName": "Enxame",
+  "onboardingTitle": "Bem-vindo ao Enxame",
+  "onboardingSubtitle": "Conversas e arquivos direto entre amigos, sem servidor no meio. Basta escolher um nome.",
+  "onboardingNameLabel": "Como você quer ser chamado?",
+  "onboardingStart": "Começar",
+  "onboardingStarting": "Preparando seu nó…",
+  "startFailed": "Não foi possível iniciar: {error}",
+  "@startFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "navChats": "Conversas",
+  "navContacts": "Contatos",
+  "navContribution": "Contribuição",
+  "navDiagnostics": "Diagnóstico",
+  "noChats": "Nenhuma conversa ainda. Adicione um contato para começar.",
+  "pickChat": "Escolha uma conversa",
+  "newGroup": "Novo grupo",
+  "groupNameLabel": "Nome do grupo",
+  "groupMembersLabel": "Membros",
+  "create": "Criar",
+  "cancel": "Cancelar",
+  "close": "Fechar",
+  "ok": "Entendi",
+  "groupNeedsContacts": "Você precisa de pelo menos um contato para criar um grupo.",
+  "groupBadge": "grupo",
+  "typeMessage": "Escreva uma mensagem",
+  "send": "Enviar",
+  "sendFailed": "Falha ao enviar: {error}",
+  "@sendFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "deliveredHint": "entregue",
+  "pendingHint": "aguardando entrega",
+  "noMessages": "Nenhuma mensagem ainda. Diga oi!",
+  "you": "você",
+  "myInvite": "Meu convite",
+  "myInviteHelp": "Mande este convite para quem você quer como contato. Ele vale por algumas horas e a pessoa só entra se você aceitar.",
+  "copyInvite": "Copiar convite",
+  "inviteCopied": "Convite copiado",
+  "showQr": "Mostrar QR",
+  "addContact": "Adicionar contato",
+  "addContactHelp": "Cole o convite que a outra pessoa mandou.",
+  "inviteLabel": "Convite (enxame1…)",
+  "sendRequest": "Enviar pedido",
+  "waitingAcceptance": "Pedido enviado. Aguardando a outra pessoa aceitar…",
+  "contactAdded": "{name} agora é seu contato.",
+  "@contactAdded": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "contactRejected": "A outra pessoa recusou o pedido.",
+  "contactAlready": "Essa pessoa já é seu contato.",
+  "requestsTitle": "Pedidos de contato",
+  "requestFrom": "{name} quer ser seu contato",
+  "@requestFrom": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "requestVerify": "Confirme esta impressão digital com a pessoa por outro canal antes de aceitar:",
+  "accept": "Aceitar",
+  "reject": "Recusar",
+  "contactsTitle": "Contatos",
+  "noContacts": "Você ainda não tem contatos.",
+  "contactPending": "aguardando",
+  "fingerprintLabel": "Impressão digital",
+  "contributionTitle": "Contribuição para a rede",
+  "contributionHelp": "Seu computador ajuda seus contatos guardando mensagens e arquivos enquanto eles estão offline. Tudo cifrado: você não lê nada do que carrega.",
+  "roleLabel": "Papel atual",
+  "gameMode": "Modo jogo",
+  "gameModeHelp": "Pausa toda a contribuição enquanto você joga ou usa muita CPU/rede.",
+  "contribute": "Contribuir com a rede",
+  "contributeHelp": "Desligado, você só usa a rede e não ajuda ninguém.",
+  "servedThisMonth": "Servido neste mês",
+  "carrying": "Guardando para contatos",
+  "itemsDelivered": "Entregas feitas",
+  "byContact": "Quem você ajudou",
+  "nobodyYet": "Ninguém ainda.",
+  "messagesUnit": "{n} mensagens",
+  "@messagesUnit": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "diagnosticsTitle": "Diagnóstico de rede",
+  "runDiagnostics": "Executar diagnóstico",
+  "running": "Medindo…",
+  "dnsLabel": "DNS",
+  "natLabel": "NAT",
+  "relayLabel": "Relay preferido",
+  "pathDirect": "direto",
+  "pathRelay": "via relay",
+  "pathMixed": "misto",
+  "pathUnknown": "desconhecido",
+  "unreachable": "inacessível",
+  "noContactsToProbe": "Sem contatos para sondar.",
+  "groupInfo": "Informações do grupo",
+  "groupCreator": "Criado por {name}",
+  "@groupCreator": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "seesYourIp": "vê seu IP",
+  "ipWarningTitle": "Atenção: IP visível no grupo",
+  "ipWarningBody": "Neste grupo há pessoas que não são seus contatos. Elas passam a ver o seu endereço de rede (IP), e você o delas:",
+  "joinedGroup": "Você entrou no grupo {name}",
+  "@joinedGroup": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "removedFromGroup": "Você foi removido do grupo {name}",
+  "@removedFromGroup": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "notInGroup": "Você não está mais neste grupo.",
+  "addMember": "Adicionar membro",
+  "removeMember": "Remover",
+  "renameGroup": "Renomear",
+  "offlineMembers": "Offline agora: {names}",
+  "@offlineMembers": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "errorGeneric": "Algo deu errado: {error}",
+  "@errorGeneric": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  }
+}

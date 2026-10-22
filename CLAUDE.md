@@ -112,6 +112,18 @@ cargo run -p enxame-cli -- --help
 - Banco v4 (`groups`) e v5 (`pending_delivery`/`carry_queue` por `(envelope, destinatário)`).
 - Testes: `cargo test -p enxame-core --test groups`.
 
+## Fase 6 (app Flutter; em andamento)
+
+- `app/` (Flutter 3.47, Linux; Windows no bloco 6.6) e `crates/enxame-ffi` (ponte `flutter_rust_bridge`
+  **2.13.0**, versão fixada; ADR 0011). Regenerar a ponte: `scripts/app/gen-bridge.sh`. O código gerado
+  é versionado. A API escrita à mão está em `crates/enxame-ffi/src/api/app.rs`.
+- Rodar: `cd app && flutter run -d linux` (o CMake compila a biblioteca Rust). Testes:
+  `flutter analyze`, `flutter test` e, com núcleo real, `ENXAME_DATA_DIR=$(mktemp -d) ENXAME_RELAY=disabled
+  ENXAME_MDNS=0 flutter test integration_test -d linux`.
+- DNS automático no núcleo (ADR 0010). Textos em `app/lib/l10n/*.arb` (pt modelo, en).
+- **Não use automação de teclado/mouse (xdotool) na tela do usuário** para testar a interface: use
+  `integration_test`.
+
 ## Estado
 
 - **Leia [`docs/STATUS.md`](docs/STATUS.md) primeiro**: onde paramos, o que falta e a ordem de amanhã.

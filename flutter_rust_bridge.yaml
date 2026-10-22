@@ -1,0 +1,4 @@
+# Configuração do flutter_rust_bridge 2.13.0 (scripts/app/gen-bridge.sh).
+rust_input: crate::api
+rust_root: crates/enxame-ffi/
+dart_output: app/lib/src/rust
