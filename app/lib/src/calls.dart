@@ -195,6 +195,7 @@ class CallController extends ChangeNotifier {
     sharing = true;
     localRenderer.srcObject = stream;
     notifyListeners();
+    unawaited(_tuneScreenSender());
   }
 
   Future<void> stopShare() async {
@@ -260,6 +261,32 @@ class CallController extends ChangeNotifier {
   }
 
   Timer? _statsTimer;
+
+  /// Tela: nitidez antes de fluidez. Sem isto o WebRTC começa em 640x360 (texto borrado) e só
+  /// sobe quando mede a banda; com "manter resolução" ele cai nos quadros por segundo, não nos
+  /// pixels. Teto de 4 Mbit/s e 15 quadros por segundo bastam para texto e rolagem.
+  Future<void> _tuneScreenSender() async {
+    final sender = _videoSender;
+    if (sender == null) return;
+    try {
+      final p = sender.parameters;
+      p.degradationPreference = RTCDegradationPreference.MAINTAIN_RESOLUTION;
+      final enc = (p.encodings != null && p.encodings!.isNotEmpty)
+          ? p.encodings!.first
+          : RTCRtpEncoding();
+      enc
+        ..maxBitrate = 4000000
+        ..maxFramerate = 15
+        ..scaleResolutionDownBy = 1.0;
+      p.encodings = [enc];
+      final ok = await sender.setParameters(p);
+      _log(
+        'afinando a tela (manter resolução, 4 Mbit/s, 15 fps): ${ok ? 'ok' : 'recusado'}',
+      );
+    } catch (e) {
+      _log('não consegui afinar o envio da tela: $e');
+    }
+  }
 
   /// A cada poucos segundos anota resolução, quadros por segundo e taxa do vídeo (diagnóstico).
   void _startStatsLog() {
@@ -411,6 +438,7 @@ class CallController extends ChangeNotifier {
         notifyListeners();
         unawaited(_logSelectedPair());
         _startStatsLog();
+        if (sharing) unawaited(_tuneScreenSender());
       } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
         _end('a conexão falhou', notify: true);
       }
