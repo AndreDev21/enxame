@@ -63,8 +63,49 @@ acima de `prefetch_max_mb` não são replicados; a cópia vencida some e a GC ap
 5. O `iroh-blobs` 0.103.1 é pré-produção (aviso da própria documentação): uso isolado em
    `blobs.rs` e `node/files.rs`, versão fixada.
 
+## Validação em campo (2026-10-22)
+
+Máquinas: **André** (Linux, LAN), **bob** (Linux, mesma LAN/IP público que o André, papel `Relay`) e
+**notebook** (Windows, hotspot 4G do celular, `10.61.x`, papel `Peer`). Arquivos aleatórios de 100 MB
+(≈100 MB de ciphertext); orquestração pelo próprio chat (`scripts/field/orq.sh`).
+
+| Rodada | Quem baixa | Fonte(s) | Tempo | Vel. | SHA-256 |
+|---|---|---|---|---|---|
+| 1 | notebook (4G) | André | 99,2 s | ~1,0 MB/s | igual |
+| 1 | bob (LAN) | André | 17 s | ~5,8 MB/s | igual |
+| 3 | bob | André | 17,7 s | ~5,6 MB/s | igual |
+| 3 | notebook (4G) | André + bob | 101,9 s | ~0,95 MB/s | igual |
+
+- **Multi-fonte confirmada na rede real:** na rodada 3 o bob serviu **50.332.338 bytes**, cerca de
+  metade do arquivo (o `RoundRobin` divide os segmentos entre as duas fontes). O hash bateu.
+- O tempo do notebook não melhorou com duas fontes: o gargalo é o próprio caminho dele (hotspot atrás
+  de relay, ~1 MB/s), não as fontes.
+- **Windows validado pela primeira vez** (`init`, pareamento, chat, envio e download). Rede móvel: o
+  caminho ficou em `relay` (NAT sem furo direto em 20 s), RTT ~295 ms.
+- **Pareamento é pré-requisito de fonte:** só contatos mútuos servem e são discados. Na rodada 2 o
+  notebook não era contato do bob, então baixou só do André (0 bytes do bob). Só depois de parear
+  notebook ↔ bob a multi-fonte aconteceu. Não é bug, mas a UI da Fase 6 precisa deixar claro quem é
+  contato de quem.
+
+### Achados de campo
+
+1. O relay público do iroh limita a banda por endpoint (`The relay is rate-limiting this endpoint`).
+   Por relay, 100 MB levam ~100 s: arquivos grandes dependem de caminho direto ou de relay próprio
+   (opt-in, ADR 0008).
+2. O chat fica bloqueado durante o `/baixar` e o progresso só aparece depois do "salvo em". A CLI
+   não mostra de quais fontes veio (`baixando N de andre...`).
+3. `history` e `contacts` sobem um nó completo com a mesma chave e derrubam o chat aberto no relay
+   (`Another endpoint connected with the same endpoint id`); corrigido: `history` agora lê o banco sem subir o nó (`read_history`, com teste).
+4. `/contribuicao` só atualiza quando a conexão de blobs fecha; o contador do serviço aparece com
+   atraso.
+5. O prompt de aceitação de contato (`serve`) recusa respostas com BOM/espaços (visto numa ponte no
+   Windows com codepage 65001); corrigido: a resposta é normalizada (espaços, BOM e caixa), com teste.
+6. O chat não aceita pedidos de contato (só o `serve`); para parear dois nós já online é preciso
+   parar o chat.
+
 ## Limites desta validação
 
-- Tudo em localhost; a internet real (NAT, relay, latência) ainda não foi medida para arquivos.
+- Rodadas de retomada de download e de arquivo com remetente offline (passos 5 e 6 do roteiro)
+  **não foram feitas** neste dia: a andrecasa não estava disponível.
 - O `enxame-node` em Docker não foi reconstruído com o suporte a arquivos.
-- Windows e rede móvel seguem sem teste. Grupos (Fase 5) não têm arquivos ainda.
+- Grupos (Fase 5) não têm arquivos ainda.

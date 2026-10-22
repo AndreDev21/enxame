@@ -292,11 +292,10 @@ async fn run() -> Result<()> {
             );
         }
         Command::History { contact, n } => {
+            // Só lê o banco: subir o nó derrubaria um chat aberto com a mesma chave no relay.
             let cfg = load_config(&cli)?;
-            let node = start(cfg).await?;
-            let hist = node.history(contact, *n).await;
-            node.shutdown().await;
-            let hist = hist?;
+            let ks = open_keystore(&cfg);
+            let hist = enxame_core::read_history(&cfg, ks.as_ref(), contact, *n).await?;
             if hist.is_empty() {
                 println!("(sem mensagens)");
             }
@@ -651,7 +650,7 @@ async fn serve(cfg: Config, auto_accept: bool) -> Result<()> {
             },
             line = lines.next_line(), if !auto_accept => {
                 let Some(line) = line? else { continue };
-                let answer = line.trim().to_lowercase();
+                let answer = normalize_answer(&line);
                 if let Some(req) = node.pending_requests().first() {
                     let accept = matches!(answer.as_str(), "s" | "sim" | "y" | "yes");
                     node.respond_contact(req.id, accept)?;
@@ -717,5 +716,23 @@ fn print_diag(r: &DiagReport) {
             println!("  trocas de caminho: {}", m.path_switches);
             println!("  caminhos abertos: {}", m.open_paths);
         }
+    }
+}
+
+/// Resposta do prompt de aceite sem espaços, BOM (consoles UTF-8 do Windows) nem caixa.
+fn normalize_answer(line: &str) -> String {
+    line.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
+        .to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_answer;
+
+    #[test]
+    fn accept_answer_ignores_bom_and_whitespace() {
+        assert_eq!(normalize_answer("\u{feff}s\r\n"), "s");
+        assert_eq!(normalize_answer("  SIM \t"), "sim");
+        assert_eq!(normalize_answer("\u{feff}"), "");
     }
 }

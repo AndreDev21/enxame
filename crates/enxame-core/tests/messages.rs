@@ -213,3 +213,22 @@ async fn phase1_contacts_file_is_migrated_to_the_database() {
     assert!(a.dir.path().join("contacts.bin.migrated").exists());
     assert!(!a.dir.path().join("contacts.bin").exists());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_history_reads_the_database_while_the_node_is_running() {
+    let (a, b) = (node("alice").await, node("bob").await);
+    befriend(&a.node, &b.node).await;
+    a.node.send_text("bob", "primeira").await.unwrap();
+    a.node.send_text("bob", "segunda").await.unwrap();
+
+    // Sem subir outro endpoint: o nó `a` continua com a mesma chave no ar.
+    let cfg = Config::for_tests(a.dir.path().to_path_buf(), "alice");
+    let store = FileKeyStore::new(a.dir.path().join("identity.key"));
+    let read = enxame_core::read_history(&cfg, &store, "bob", 10)
+        .await
+        .unwrap();
+    let texts: Vec<_> = read.iter().map(|m| m.text.as_str()).collect();
+    assert_eq!(texts, ["primeira", "segunda"]);
+    assert_eq!(texts, a.texts("bob").await);
+    assert!(read.iter().all(|m| m.from_me));
+}

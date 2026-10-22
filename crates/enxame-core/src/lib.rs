@@ -38,9 +38,9 @@ pub use keystore::OsKeyStore;
 pub use keystore::{open_keystore, FileKeyStore, KeyStore};
 pub use net::{NatKind, NatReport, PathKind, PathMetrics};
 pub use node::{
-    list_contacts, AddOutcome, ContributionSummary, DiagReport, Downloaded, Enxame, FileEntry,
-    Message, MessageFile, PeerDiag, PendingRequest, PrefetchedBlob, SentFile, SentMessage,
-    StartOptions, DEFAULT_DIRECT_WAIT,
+    list_contacts, read_history, AddOutcome, ContributionSummary, DiagReport, Downloaded, Enxame,
+    FileEntry, Message, MessageFile, PeerDiag, PendingRequest, PrefetchedBlob, SentFile,
+    SentMessage, StartOptions, DEFAULT_DIRECT_WAIT,
 };
 pub use proto::{ALPN_CONTACT, ALPN_SYNC};
 pub use role::Role;

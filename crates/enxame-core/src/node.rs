@@ -712,61 +712,14 @@ impl Enxame {
     pub async fn history(&self, contact: &str, limit: usize) -> Result<Vec<Message>> {
         let inner = &self.inner;
         let c = inner.book().resolve(contact)?.clone();
-        let conv = dm_conversation_id(&inner.identity.identity_pk(), &c.identity_pk);
-        let cpk = c.identity_pk;
-        let (all, pending) = inner
-            .store
-            .run(move |db| {
-                let all = store::conversation_envelopes(db, &conv)?;
-                let pending: HashSet<[u8; 32]> =
-                    store::pending_list(db, &cpk)?.into_iter().collect();
-                Ok((all, pending))
-            })
-            .await?;
-        let order = order_ids(&all.iter().map(|s| s.order_item()).collect::<Vec<_>>());
-        let by_id: HashMap<[u8; 32], &store::StoredEnvelope> =
-            all.iter().map(|s| (s.envelope.id, s)).collect();
-        let mut out: Vec<Message> = order
-            .iter()
-            .filter_map(|id| by_id.get(id))
-            .filter(|s| matches!(s.envelope.kind, EnvelopeKind::Text | EnvelopeKind::FileRef))
-            .map(|s| {
-                // Arquivo: a descrição vem do `FileRef` (a chave nunca sai desta função).
-                let file = (s.envelope.kind == EnvelopeKind::FileRef)
-                    .then(|| {
-                        let max = inner.cfg.max_file_mb.saturating_mul(1024 * 1024);
-                        crate::FileRef::decode(s.plaintext.as_deref().unwrap_or_default(), max).ok()
-                    })
-                    .flatten();
-                (s, file)
-            })
-            .map(|(s, file)| Message {
-                id: s.envelope.id,
-                from_me: s.outgoing,
-                author_name: if s.outgoing {
-                    inner.cfg.display_name.clone()
-                } else {
-                    c.display_name.clone()
-                },
-                hlc: s.envelope.hlc,
-                text: match &file {
-                    Some(f) => f.describe(),
-                    None => String::from_utf8_lossy(s.plaintext.as_deref().unwrap_or_default())
-                        .into_owned(),
-                },
-                received_at_ms: s.received_at,
-                delivered: s.outgoing.then(|| !pending.contains(&s.envelope.id)),
-                file: file.map(|f| MessageFile {
-                    name: crate::sanitize_name(&f.name),
-                    size: f.size,
-                    mime: f.mime,
-                    blob: f.blob_hash,
-                }),
-            })
-            .collect();
-        let skip = out.len().saturating_sub(limit);
-        out.drain(..skip);
-        Ok(out)
+        build_history(
+            &inner.store,
+            &inner.identity.identity_pk(),
+            &inner.cfg,
+            &c,
+            limit,
+        )
+        .await
     }
 
     async fn diag_peer(&self, c: &Contact, direct_wait: Duration) -> PeerDiag {
@@ -893,6 +846,86 @@ pub fn list_contacts(cfg: &Config) -> Result<Vec<Contact>> {
     let store = Store::open(&cfg.data_dir.join("enxame.db"))?;
     import_legacy_contacts(cfg, &store)?;
     Ok(ContactBook::open(store)?.list().to_vec())
+}
+
+/// Histórico de uma conversa lido direto do banco, **sem** subir o nó (sem endpoint nem relay).
+/// Serve para `history` com outro processo (chat, serve) rodando na mesma identidade: abrir um
+/// segundo endpoint com a mesma chave derrubaria o primeiro no relay.
+pub async fn read_history(
+    cfg: &Config,
+    keystore: &dyn KeyStore,
+    contact: &str,
+    limit: usize,
+) -> Result<Vec<Message>> {
+    let (identity, _) = Identity::load_or_create(keystore)?;
+    let store = Store::open(&cfg.data_dir.join("enxame.db"))?;
+    import_legacy_contacts(cfg, &store)?;
+    let book = ContactBook::open(store.clone())?;
+    let c = book.resolve(contact)?.clone();
+    build_history(&store, &identity.identity_pk(), cfg, &c, limit).await
+}
+
+async fn build_history(
+    store: &Store,
+    my_pk: &[u8; 32],
+    cfg: &Config,
+    c: &Contact,
+    limit: usize,
+) -> Result<Vec<Message>> {
+    let conv = dm_conversation_id(my_pk, &c.identity_pk);
+    let cpk = c.identity_pk;
+    let (all, pending) = store
+        .run(move |db| {
+            let all = store::conversation_envelopes(db, &conv)?;
+            let pending: HashSet<[u8; 32]> = store::pending_list(db, &cpk)?.into_iter().collect();
+            Ok((all, pending))
+        })
+        .await?;
+    let order = order_ids(&all.iter().map(|s| s.order_item()).collect::<Vec<_>>());
+    let by_id: HashMap<[u8; 32], &store::StoredEnvelope> =
+        all.iter().map(|s| (s.envelope.id, s)).collect();
+    let mut out: Vec<Message> = order
+        .iter()
+        .filter_map(|id| by_id.get(id))
+        .filter(|s| matches!(s.envelope.kind, EnvelopeKind::Text | EnvelopeKind::FileRef))
+        .map(|s| {
+            // Arquivo: a descrição vem do `FileRef` (a chave nunca sai desta função).
+            let file = (s.envelope.kind == EnvelopeKind::FileRef)
+                .then(|| {
+                    let max = cfg.max_file_mb.saturating_mul(1024 * 1024);
+                    crate::FileRef::decode(s.plaintext.as_deref().unwrap_or_default(), max).ok()
+                })
+                .flatten();
+            (s, file)
+        })
+        .map(|(s, file)| Message {
+            id: s.envelope.id,
+            from_me: s.outgoing,
+            author_name: if s.outgoing {
+                cfg.display_name.clone()
+            } else {
+                c.display_name.clone()
+            },
+            hlc: s.envelope.hlc,
+            text: match &file {
+                Some(f) => f.describe(),
+                None => {
+                    String::from_utf8_lossy(s.plaintext.as_deref().unwrap_or_default()).into_owned()
+                }
+            },
+            received_at_ms: s.received_at,
+            delivered: s.outgoing.then(|| !pending.contains(&s.envelope.id)),
+            file: file.map(|f| MessageFile {
+                name: crate::sanitize_name(&f.name),
+                size: f.size,
+                mime: f.mime,
+                blob: f.blob_hash,
+            }),
+        })
+        .collect();
+    let skip = out.len().saturating_sub(limit);
+    out.drain(..skip);
+    Ok(out)
 }
 
 /// Importa o `contacts.bin` da Fase 1 para o banco, uma única vez.
