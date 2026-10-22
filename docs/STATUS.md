@@ -8,7 +8,7 @@ Especificação: [`enxame-mvp.md`](../enxame-mvp.md) · convenções: [`CLAUDE.m
 As Fases 0–4 estão **implementadas e passam em todos os testes locais**; as Fases 1, 2 e 3 também
 foram **validadas em campo** com máquinas reais. **A Fase 4 (arquivos) também foi validada em
 campo** (2026-10-22: multi-fonte, retomada e arquivo com remetente offline; veja o relatório).
-A **Fase 5 (grupos)** está implementada e passa nos testes locais; falta o teste de campo e a revisão. Próxima fase de código: **Fase 6**.
+A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada em campo (2026-10-22); aguarda revisão. Próxima fase de código: **Fase 6**.
 
 ## Fases
 
@@ -19,7 +19,7 @@ A **Fase 5 (grupos)** está implementada e passa nos testes locais; falta o test
 | 2 | `store`, `crypto`, `sync`, mensagens 1:1 | ok | ok (offline e retorno, ordem, acentos/emoji) | `reports/fase2-mensagens.md` |
 | 3 | Papéis, carry com recibos, `enxame-node`, deploy, Android | ok | ok (A→carrier→B com A offline) | `reports/fase3-carry.md` |
 | 4 | Arquivos: STREAM, `iroh-blobs`, multi-fonte, retomada, prefetch | ok (inclui 1 GiB em 2 fontes) | ok (multi-fonte, retomada, remetente offline; Windows+4G) | `reports/fase4-arquivos.md` |
-| 5 | Grupos pequenos (≤ 20), retrato assinado pelo criador, co-membros como pares, carry entre membros | ok (5 nós in-process, add/remove, removido não lê, carry entre membros) | **PENDENTE** (`roteiros/fase5-grupos.md`) | `reports/fase5-grupos.md` |
+| 5 | Grupos pequenos (≤ 20), retrato assinado pelo criador, co-membros como pares, carry entre membros | ok (5 nós in-process, add/remove, removido não lê, carry entre membros) | ok (4 máquinas, inclui Windows no 4G; sem não-contatos) | `reports/fase5-grupos.md` |
 | 6 | App Flutter desktop + setup simples | não iniciada | — | — |
 | 7 | Call 1:1 (stretch) | não iniciada | — | — |
 

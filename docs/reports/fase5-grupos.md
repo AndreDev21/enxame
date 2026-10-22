@@ -1,6 +1,6 @@
 # Relatório da Fase 5 — grupos pequenos
 
-Data: 2026-10-22. Validação automatizada (nós in-process). Teste em máquinas reais: ver
+Data: 2026-10-22. Validação automatizada (nós in-process) e em campo (seção abaixo). Roteiro:
 `docs/roteiros/fase5-grupos.md`. Decisões em `docs/adr/0009-grupos-pequenos.md`; wire em
 `docs/protocol.md`.
 
@@ -18,6 +18,29 @@ Outros testes: `a_member_catches_up_from_another_member_while_the_author_is_offl
 puxa de beto e cris, que não são seus contatos, sem o autor), `group_limits_and_validation`, e os
 unitários de `groups` (retrato válido/inválido: membro repetido, criador fora, > 20, nome,
 certificado trocado, lixo; `group_only_peers`).
+
+## Validação em campo (2026-10-22)
+
+Máquinas: **André** (criador, Linux, LAN), **bob** (Linux, LAN, `Relay`), **jean** (Linux, LAN,
+`Peer`) e **notebook** (Windows, hotspot 4G, `Peer`), todos no commit `de8d7a5`. Todos já eram
+contatos entre si, então o aviso de IP saiu vazio (o caso com não-contatos fica nos testes).
+
+| Passo | Resultado |
+|---|---|
+| Criar `#teste` com bob, jean e notebook | ok: entregue direto aos 3; cada um viu "você entrou no grupo" e `/grupos` correto |
+| Mensagens dos 4 autores | ok: histórico idêntico (4 mensagens) nas 4 máquinas, inclusive do 4G; `entregue a 3` |
+| Notebook offline (2 min), André envia 2 mensagens | ok: `entregue a 2; offline: notebook; 2 carrier(s)`; ao voltar, as 2 chegaram sozinhas em 3 s |
+| Remover jean | ok: jean viu "você foi removido", `/grupo sync` não trouxe a mensagem nova, `#teste ...` deu "você não está mais neste grupo"; bob e notebook seguiram recebendo |
+| Bob (não criador) tenta add/remover | ok: "só o criador do grupo pode mudar a lista de membros" |
+
+### Achados de campo
+
+1. **Exibição no chat (corrigido):** duas mensagens chegando juntas imprimiam a última duas vezes
+   e perdiam a primeira ao vivo (o chat lia só a última do histórico a cada evento). Vale também
+   para o 1:1. Agora o chat guarda os ids já impressos e imprime só o que é novo.
+2. `/grupo sync` num grupo de que fui removido ainda disca os ex-colegas (3 "responderam");
+   inofensivo (nenhuma conversa em comum é negociada), mas deveria recusar.
+3. O aviso de IP com não-contatos não foi exercitado em máquinas reais (todos eram contatos).
 
 ## O que foi construído
 
@@ -41,7 +64,9 @@ certificado trocado, lixo; `group_only_peers`).
 
 ## Limites desta validação
 
-- Tudo in-process, sem relay nem NAT; falta o teste de campo (roteiro em `docs/roteiros/`).
+- O campo cobriu 4 máquinas reais (inclui Windows no 4G), mas só com contatos entre si: o caso de
+  co-membros que não são contatos, o carry por eles e o aviso de IP preenchido só foram testados
+  in-process.
 - Sem sair do grupo por conta própria, sem troca de criador, sem arquivos em grupo validados em
   campo (o `FileRef` é aceito na conversa de grupo, mas servir blobs a co-membros só foi coberto
   pela política de pares, não por um teste de ponta a ponta de grupo).

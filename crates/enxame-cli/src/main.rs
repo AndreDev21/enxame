@@ -365,10 +365,19 @@ fn print_message(m: &enxame_core::Message) {
 async fn chat(cfg: Config, contacts: &[String]) -> Result<()> {
     use tokio::io::AsyncBufReadExt;
     let node = start(cfg).await?;
+    // Mensagens já impressas: duas chegadas juntas não repetem nem pulam nenhuma.
+    let mut shown: std::collections::HashSet<[u8; 32]> = Default::default();
     // Valida os contatos e mostra o contexto de cada um.
     for contact in contacts {
         for m in node.history(contact, 20).await? {
+            shown.insert(m.id);
             print_message(&m);
+        }
+    }
+    // O que já está nos grupos não é "novo": só marca como visto.
+    for g in node.groups().await?.into_iter().filter(|g| g.active) {
+        for m in node.group_history(&g.name, 20).await? {
+            shown.insert(m.id);
         }
     }
     println!(
@@ -406,14 +415,18 @@ async fn chat(cfg: Config, contacts: &[String]) -> Result<()> {
                         .into_iter()
                         .find(|g| g.id == conversation_id && g.active);
                     if let Some(g) = group {
-                        if let Some(m) = node.group_history(&g.name, 1).await?.pop() {
-                            print!("#{} ", g.name);
-                            print_message(&m);
+                        for m in node.group_history(&g.name, 20).await? {
+                            if shown.insert(m.id) {
+                                print!("#{} ", g.name);
+                                print_message(&m);
+                            }
                         }
                     // Só as conversas abertas; as outras ficam no histórico delas.
                     } else if let Some(contact) = owner(&from_name, &from_fingerprint) {
-                        if let Some(m) = node.history(contact, 1).await?.pop() {
-                            print_message(&m);
+                        for m in node.history(contact, 20).await? {
+                            if shown.insert(m.id) {
+                                print_message(&m);
+                            }
                         }
                     }
                 }
