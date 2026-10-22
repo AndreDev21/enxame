@@ -38,7 +38,7 @@ pub use identity::{fingerprint, unix_now, DeviceCert, Identity, InviteTicket};
 #[cfg(feature = "os-keyring")]
 pub use keystore::OsKeyStore;
 pub use keystore::{open_keystore, FileKeyStore, KeyStore};
-pub use net::{NatKind, NatReport, PathKind, PathMetrics};
+pub use net::{DnsChoice, NatKind, NatReport, PathKind, PathMetrics, FALLBACK_DNS};
 pub use node::{
     list_contacts, read_history, AddOutcome, ContributionSummary, DiagReport, Downloaded, Enxame,
     FileEntry, GroupInfo, GroupMemberInfo, Message, MessageFile, PeerDiag, PendingRequest,

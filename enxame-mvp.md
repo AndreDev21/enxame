@@ -444,7 +444,7 @@ Contabilidade: cada byte servido para terceiros incrementa `contribution_stats` 
 
 | Origem | Pendência | Onde entra |
 |---|---|---|
-| Fase 3 (roteador de um usuário e MagicDNS do Tailscale descartam EDNS) | DNS com fallback automático, sem variável de ambiente | Fase 6 (aceite) — hoje: `dns_servers` |
+| Fase 3 (roteador de um usuário e MagicDNS do Tailscale descartam EDNS) | DNS com fallback automático, sem variável de ambiente | **Feito** na Fase 6 (ADR 0010); falta reavaliar ao trocar de rede |
 | Fases 1–4 | Instaladores e binários prontos (hoje é preciso compilar com Rust) | Fase 6 / CI de releases |
 | Fase 4 | `enxame-node` em Docker reconstruído e validado com arquivos | antes de recomendar o deploy próprio |
 | Fases 1–4 | Windows e rede móvel (4G/CGNAT) sem teste em campo | Fase 6 |

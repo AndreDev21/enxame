@@ -42,14 +42,14 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
 **Setup simples para o usuário básico**: instalar e usar, sem terminal, Docker, variáveis de ambiente
 ou relay para configurar. Relay padrão = os públicos do iroh; relay/nó próprio (Docker) é **opt-in**
 para quem quer garantia. Está na spec (1.1, 11, 13/Fase 6, 16.8) e no
-[ADR 0008](adr/0008-simplicidade-de-setup-e-relay.md). **DNS com fallback automático** é item de
-aceite da Fase 6 (hoje só existe a opção manual `dns_servers`).
+[ADR 0008](adr/0008-simplicidade-de-setup-e-relay.md). **DNS com fallback automático**: feito (ADR 0010; detecta o resolvedor do sistema que não resolve o
+relay e passa a 1.1.1.1/8.8.8.8; `dns_servers` continua mandando).
 
 ## Pendências e dívidas conhecidas
 
 | Item | Onde entra |
 |---|---|
-| DNS com fallback automático (roteador e MagicDNS do Tailscale descartam EDNS) | Fase 6 (aceite) |
+| ~~DNS com fallback automático~~ feito (ADR 0010); falta reavaliar ao trocar de rede | Fase 6 |
 | Instaladores e binários prontos pela CI (hoje é preciso compilar com Rust) | Fase 6 / CI de releases |
 | Windows e 4G (CGNAT) testados só na Fase 4 (notebook via relay, ~1 MB/s); sinais do Windows (bateria, rede medida) e Ctrl-C sem console não implementados | Fase 6 |
 | `enxame-node` em Docker com arquivos | amanhã (item 2) |
@@ -87,8 +87,8 @@ Netsim (NAT simulado, sem root): precisa do `iroh-relay`
 
 - **Um processo por identidade**: `chat`, `serve` e `send` no mesmo diretório de dados conflitam.
 - **Não abrir o banco com um binário mais antigo** depois de migrar (o schema só avança).
-- **DNS**: esta máquina (Tailscale/MagicDNS) e o roteador do bob descartam EDNS → o relay fica
-  inalcançável. Use `ENXAME_DNS_SERVERS=1.1.1.1,8.8.8.8`.
+- **DNS**: esta máquina (Tailscale/MagicDNS) e o roteador do bob descartam EDNS. Desde o ADR 0010 o
+  nó detecta isso sozinho e usa 1.1.1.1/8.8.8.8 (`diag` mostra "DNS: automático"); `ENXAME_DNS_SERVERS` só é necessário para forçar outros servidores.
 - Nó novo nasce em `Leaf`, que não carrega mensagens nem semeia: em testes use `--role peer`
   (ou `role = "peer"` na configuração).
 - Mandar o mesmo arquivo a duas pessoas em comandos separados gera blobs diferentes: use

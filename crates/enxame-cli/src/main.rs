@@ -777,6 +777,13 @@ fn print_diag(r: &DiagReport) {
     println!("node id:   {}", r.endpoint_id);
     println!("keystore:  {}", r.keystore);
     println!("papel:     {:?}", r.role);
+    match &r.dns {
+        enxame_core::DnsChoice::System => println!("DNS:       sistema"),
+        enxame_core::DnsChoice::Manual => println!("DNS:       manual (dns_servers)"),
+        enxame_core::DnsChoice::Fallback { reason } => {
+            println!("DNS:       automático, servidores públicos ({reason})")
+        }
+    }
     println!(
         "NAT:       {:?} (udp: {}, público v4: {}, mapeamento varia por destino: {}, relay preferido: {})",
         r.nat.kind,

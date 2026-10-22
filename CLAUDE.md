@@ -8,7 +8,7 @@ Enxame: comunicador P2P friend-to-friend em Rust (iroh). Especificação complet
 - **Setup simples para o usuário básico** (spec 1.1, ADR 0008): sem terminal, Docker, variáveis de
   ambiente ou relay para configurar. Relay padrão = públicos do iroh; relay/nó próprio é opt-in.
   Não empurre configuração técnica para o caminho do usuário comum; o DNS com fallback automático
-  é item de aceite da Fase 6.
+  já existe (ADR 0010); falta o resto do setup simples da Fase 6.
 
 ## Regras de trabalho
 

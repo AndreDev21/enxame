@@ -93,6 +93,8 @@ pub struct DiagReport {
     /// Papel atual deste nó.
     pub role: Role,
     pub keystore: &'static str,
+    /// Como o DNS foi escolhido: sistema, manual ou fallback automático.
+    pub dns: net::DnsChoice,
     pub peers: Vec<PeerDiag>,
 }
 
@@ -182,6 +184,7 @@ struct Inner {
     cfg: Config,
     identity: Identity,
     keystore_name: &'static str,
+    dns: net::DnsChoice,
     endpoint: Endpoint,
     contacts: Mutex<ContactBook>,
     store: Store,
@@ -352,8 +355,20 @@ impl Enxame {
         if created {
             tracing::info!(fingerprint = %fingerprint(&identity.identity_pk()), "identidade criada");
         }
-        let endpoint = net::bind_endpoint(&cfg, &identity).await?;
-        Self::start_with_endpoint_opts(cfg, identity, keystore.describe(), endpoint, opts).await
+        let (dns_servers, dns_choice) = net::choose_dns(&cfg).await?;
+        if let net::DnsChoice::Fallback { reason } = &dns_choice {
+            tracing::warn!("{reason}: usando servidores DNS públicos (1.1.1.1, 8.8.8.8)");
+        }
+        let endpoint = net::bind_endpoint(&cfg, &identity, dns_servers).await?;
+        Self::start_inner(
+            cfg,
+            identity,
+            keystore.describe(),
+            endpoint,
+            opts,
+            dns_choice,
+        )
+        .await
     }
 
     /// Como [`Enxame::start`], mas com um endpoint já criado pelo chamador (testes com relay
@@ -382,6 +397,25 @@ impl Enxame {
         keystore_name: &'static str,
         endpoint: Endpoint,
         opts: StartOptions,
+    ) -> Result<Self> {
+        Self::start_inner(
+            cfg,
+            identity,
+            keystore_name,
+            endpoint,
+            opts,
+            net::DnsChoice::System,
+        )
+        .await
+    }
+
+    async fn start_inner(
+        cfg: Config,
+        identity: Identity,
+        keystore_name: &'static str,
+        endpoint: Endpoint,
+        opts: StartOptions,
+        dns: net::DnsChoice,
     ) -> Result<Self> {
         if endpoint.id() != identity.endpoint_id() {
             return Err(Error::Config(
@@ -421,6 +455,7 @@ impl Enxame {
             cfg,
             identity,
             keystore_name,
+            dns,
             endpoint,
             contacts: Mutex::new(contacts),
             store,
@@ -667,6 +702,7 @@ impl Enxame {
             nat,
             role: inner.role(),
             keystore: inner.keystore_name,
+            dns: inner.dns.clone(),
             peers,
         })
     }

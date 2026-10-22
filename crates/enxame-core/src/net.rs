@@ -24,9 +24,122 @@ use crate::{
     Error, Result,
 };
 
+/// Servidores DNS públicos usados quando o resolvedor do sistema não serve (EDNS descartado).
+pub const FALLBACK_DNS: [std::net::IpAddr; 2] = [
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(1, 1, 1, 1)),
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(8, 8, 8, 8)),
+];
+const DNS_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// Como o DNS deste nó foi escolhido (aparece no `diag`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum DnsChoice {
+    /// Resolvedor do sistema (funciona, ou não havia o que testar: sem relay, ou sem rede).
+    #[default]
+    System,
+    /// O usuário definiu `dns_servers`.
+    Manual,
+    /// O resolvedor do sistema não resolveu o relay e o nó passou sozinho a servidores públicos.
+    Fallback { reason: String },
+}
+
+/// Nome do relay a testar: o primeiro dos relays públicos ou o host do relay próprio.
+fn probe_host(cfg: &Config) -> Option<String> {
+    match &cfg.relay {
+        RelaySetting::Disabled => None,
+        RelaySetting::Default => Some(
+            iroh::defaults::prod::NA_EAST_RELAY_HOSTNAME
+                .trim_end_matches('.')
+                .to_owned(),
+        ),
+        RelaySetting::Custom(urls) => {
+            let first = urls.split(',').next()?.trim();
+            let host = first
+                .parse::<iroh::RelayUrl>()
+                .ok()?
+                .host_str()
+                .map(str::to_owned)?;
+            // Endereço IP puro não passa por DNS.
+            host.parse::<std::net::IpAddr>().is_err().then_some(host)
+        }
+    }
+}
+
+async fn resolves(resolver: iroh::dns::DnsResolver, host: String) -> bool {
+    resolver
+        .lookup_ipv4_ipv6(host, DNS_PROBE_TIMEOUT)
+        .await
+        .is_ok_and(|mut it| it.next().is_some())
+}
+
+/// Decide o DNS: `dns_servers` manda; senão testa se o sistema resolve o relay e, se não
+/// resolver mas os servidores públicos resolverem, usa-os (spec 13/Fase 6, ADR 0010).
+pub async fn choose_dns(cfg: &Config) -> Result<(Vec<std::net::IpAddr>, DnsChoice)> {
+    let manual = cfg.dns_server_addrs()?;
+    if !manual.is_empty() {
+        return Ok((manual, DnsChoice::Manual));
+    }
+    let Some(host) = probe_host(cfg) else {
+        return Ok((Vec::new(), DnsChoice::System));
+    };
+    let system = resolves(iroh::dns::DnsResolver::new(), host.clone());
+    let public = resolves(
+        iroh::dns::DnsResolver::builder()
+            .add_nameserver_configs(
+                FALLBACK_DNS
+                    .iter()
+                    .copied()
+                    .map(iroh::dns::NameserverConfig::udp),
+            )
+            .build(),
+        host.clone(),
+    );
+    Ok(decide_dns(&host, system, public).await)
+}
+
+/// Lógica de decisão, separada das consultas reais para ser testável. O teste público roda junto
+/// com o do sistema: sem rede alguma o custo total é um só timeout, e com DNS saudável não espera.
+async fn decide_dns(
+    host: &str,
+    system: impl std::future::Future<Output = bool>,
+    public: impl std::future::Future<Output = bool>,
+) -> (Vec<std::net::IpAddr>, DnsChoice) {
+    tokio::pin!(system, public);
+    let mut public_done: Option<bool> = None;
+    let system_ok = loop {
+        tokio::select! {
+            ok = &mut system => break ok,
+            ok = &mut public, if public_done.is_none() => public_done = Some(ok),
+        }
+    };
+    if system_ok {
+        return (Vec::new(), DnsChoice::System);
+    }
+    let public_ok = match public_done {
+        Some(ok) => ok,
+        None => public.await,
+    };
+    if public_ok {
+        (
+            FALLBACK_DNS.to_vec(),
+            DnsChoice::Fallback {
+                reason: format!("o DNS do sistema não resolveu {host}"),
+            },
+        )
+    } else {
+        // Nenhum dos dois resolve: sem rede (ou relay fora do ar); não há o que corrigir aqui.
+        (Vec::new(), DnsChoice::System)
+    }
+}
+
 /// Cria o endpoint com a chave de dispositivo da identidade, os ALPNs do Enxame e o relay
-/// configurado. Com `mdns`, registra também a descoberta em rede local.
-pub async fn bind_endpoint(cfg: &Config, identity: &Identity) -> Result<Endpoint> {
+/// configurado. Com `mdns`, registra também a descoberta em rede local. `dns` são os servidores
+/// escolhidos por [`choose_dns`] (vazio = resolvedor do sistema).
+pub async fn bind_endpoint(
+    cfg: &Config,
+    identity: &Identity,
+    dns: Vec<std::net::IpAddr>,
+) -> Result<Endpoint> {
     let alpns = vec![ALPN_CONTACT.to_vec(), ALPN_SYNC.to_vec()];
     let base = if cfg.dns_discovery {
         Endpoint::builder(presets::N0)
@@ -48,7 +161,6 @@ pub async fn bind_endpoint(cfg: &Config, identity: &Identity) -> Result<Endpoint
             base.relay_mode(RelayMode::custom(urls))
         }
     };
-    let dns = cfg.dns_server_addrs()?;
     let builder = if dns.is_empty() {
         builder
     } else {
@@ -294,5 +406,67 @@ impl PathMonitor {
 impl Drop for PathMonitor {
     fn drop(&mut self) {
         self.task.abort();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::future::{pending, ready};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn a_working_system_resolver_is_kept_without_waiting_for_the_public_one() {
+        let (servers, choice) = decide_dns("relay.exemplo", ready(true), pending()).await;
+        assert!(servers.is_empty());
+        assert_eq!(choice, DnsChoice::System);
+    }
+
+    #[tokio::test]
+    async fn a_broken_system_resolver_falls_back_to_public_servers() {
+        let (servers, choice) = decide_dns("relay.exemplo", ready(false), ready(true)).await;
+        assert_eq!(servers, FALLBACK_DNS.to_vec());
+        match choice {
+            DnsChoice::Fallback { reason } => assert!(reason.contains("relay.exemplo"), "{reason}"),
+            other => panic!("esperava Fallback, veio {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn fallback_also_wins_when_the_public_probe_finishes_first() {
+        let slow_system = async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            false
+        };
+        let (servers, choice) = decide_dns("r", slow_system, ready(true)).await;
+        assert_eq!(servers.len(), 2);
+        assert!(matches!(choice, DnsChoice::Fallback { .. }));
+    }
+
+    #[tokio::test]
+    async fn no_connectivity_at_all_changes_nothing() {
+        let (servers, choice) = decide_dns("r", ready(false), ready(false)).await;
+        assert!(servers.is_empty());
+        assert_eq!(choice, DnsChoice::System);
+    }
+
+    #[tokio::test]
+    async fn manual_servers_win_and_nothing_is_probed_without_a_relay() {
+        let cfg = Config {
+            dns_servers: vec!["9.9.9.9".into()],
+            ..Config::default()
+        };
+        let (servers, choice) = choose_dns(&cfg).await.unwrap();
+        assert_eq!((servers.len(), choice), (1, DnsChoice::Manual));
+        let cfg = Config {
+            relay: RelaySetting::Disabled,
+            ..Config::default()
+        };
+        assert_eq!(choose_dns(&cfg).await.unwrap().1, DnsChoice::System);
+        let cfg = Config {
+            relay: RelaySetting::Custom("https://192.0.2.1".into()),
+            ..Config::default()
+        };
+        assert_eq!(choose_dns(&cfg).await.unwrap().1, DnsChoice::System);
     }
 }
