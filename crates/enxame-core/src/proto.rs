@@ -14,6 +14,8 @@ use crate::{
 pub const ALPN_CONTACT: &[u8] = b"enxame/contact/1";
 /// ALPN de sincronização; na Fase 1 só troca `Hello`. Apenas contatos mútuos.
 pub const ALPN_SYNC: &[u8] = b"enxame/sync/1";
+/// ALPN do store-and-forward (spec 9). Apenas contatos mútuos.
+pub const ALPN_CARRY: &[u8] = b"enxame/carry/1";
 /// Versões de protocolo que este build entende, da mais nova para a mais antiga.
 pub const SUPPORTED_VERSIONS: &[u8] = &[crate::PROTOCOL_VERSION];
 
@@ -65,6 +67,52 @@ pub enum SyncMsg {
         last: bool,
     },
     /// Não tenho mais nada a pedir.
+    Bye,
+    /// Hashes dos meus contatos mútuos, salgados com a conversa 1:1 deste par: só quem é contato
+    /// dos dois consegue reconhecê-los (contatos em comum, para escolher carriers).
+    Common { hashes: Vec<[u8; 32]> },
+    /// Meu papel mudou durante a sessão.
+    RoleUpdate { role: Role },
+}
+
+/// Motivo de recusa de uma oferta de carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RejectReason {
+    /// Meu papel atual não carrega para terceiros.
+    NotCarrying,
+    /// Estouraria a quota (por contato ou total).
+    Quota,
+    /// O destinatário não é meu contato mútuo (ou é o próprio ofertante).
+    NotContact,
+    /// Nada utilizável: assinatura inválida, autor errado, destinatário ausente, já confirmado.
+    Invalid,
+}
+
+/// Mensagens de `enxame/carry/1` (spec 9). Sessão simétrica; cada `Deliver` recebe exatamente um
+/// `Receipts` de volta e cada `Offer` exatamente um `Accept`/`Reject`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CarryMsg {
+    /// Recibos assinados (envelopes `kind = Receipt`) para o par expurgar cópias. `reply = true`
+    /// quando respondem a um `Deliver`.
+    Receipts {
+        receipts: Vec<Envelope>,
+        reply: bool,
+    },
+    /// Envelopes que eu carrego para **você** (o par é o destinatário).
+    Deliver {
+        envelopes: Vec<Envelope>,
+    },
+    /// Peço que você carregue estes envelopes (meus) para `for_recipient`.
+    Offer {
+        for_recipient: [u8; 32],
+        envelopes: Vec<Envelope>,
+    },
+    Accept {
+        ids: Vec<[u8; 32]>,
+    },
+    Reject {
+        reason: RejectReason,
+    },
     Bye,
 }
 
@@ -177,11 +225,41 @@ mod tests {
                 last: true,
             },
             SyncMsg::Bye,
+            SyncMsg::Common {
+                hashes: vec![[3; 32]],
+            },
+            SyncMsg::RoleUpdate { role: Role::Relay },
         ];
         for msg in msgs {
             let mut buf = Vec::new();
             write_frame(&mut buf, &msg, 4096).await.unwrap();
             let back: SyncMsg = read_frame(&mut buf.as_slice(), 4096).await.unwrap();
+            assert_eq!(back, msg);
+        }
+    }
+
+    #[tokio::test]
+    async fn carry_msgs_roundtrip() {
+        let msgs = vec![
+            CarryMsg::Receipts {
+                receipts: vec![],
+                reply: false,
+            },
+            CarryMsg::Deliver { envelopes: vec![] },
+            CarryMsg::Offer {
+                for_recipient: [4; 32],
+                envelopes: vec![],
+            },
+            CarryMsg::Accept { ids: vec![[5; 32]] },
+            CarryMsg::Reject {
+                reason: RejectReason::Quota,
+            },
+            CarryMsg::Bye,
+        ];
+        for msg in msgs {
+            let mut buf = Vec::new();
+            write_frame(&mut buf, &msg, 4096).await.unwrap();
+            let back: CarryMsg = read_frame(&mut buf.as_slice(), 4096).await.unwrap();
             assert_eq!(back, msg);
         }
     }

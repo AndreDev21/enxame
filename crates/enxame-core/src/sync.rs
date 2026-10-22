@@ -18,7 +18,7 @@ use crate::{
     identity::{unix_now_ms, Identity},
     proto::{read_frame, write_frame, SyncMsg},
     store::{self, Store},
-    Error, Result,
+    Error, Result, Role,
 };
 
 /// HLC de envelopes além disto no futuro é recusado (relógio errado ou ataque ao HLC).
@@ -37,6 +37,8 @@ pub struct SyncStats {
     pub received: usize,
     /// Envelopes recebidos e descartados (inválidos, não autorizados ou duplicados).
     pub rejected: usize,
+    /// Bytes de envelopes enviados ao par (base da estimativa passiva de upload).
+    pub sent_bytes: usize,
 }
 
 /// O que acontece com um envelope recebido.
@@ -94,6 +96,56 @@ pub async fn ingest(
     })
 }
 
+/// Valida, decifra e guarda um envelope **de terceiro** que um carrier entregou. Diferente de
+/// [`ingest`], o autor não é quem entrega: basta ser um contato mútuo meu. Devolve a identidade
+/// do autor para o recibo.
+pub async fn ingest_carried(
+    store: &Store,
+    identity: &Identity,
+    contacts: &[crate::contacts::Contact],
+    env: Envelope,
+) -> Result<(Ingest, [u8; 32])> {
+    env.verify()?;
+    let me = identity.identity_pk();
+    let author = contacts
+        .iter()
+        .find(|c| c.is_mutual() && c.identity_pk == env.author && env.author != me)
+        .ok_or_else(|| Error::Protocol("autor do envelope carregado não é meu contato".into()))?;
+    if env.conversation_id != crate::crypto::dm_conversation_id(&me, &author.identity_pk) {
+        return Err(Error::Protocol(
+            "conversa não é a nossa conversa 1:1".into(),
+        ));
+    }
+    let now = unix_now_ms();
+    if env.hlc.ms > now.saturating_add(MAX_FUTURE_MS) {
+        return Err(Error::Protocol("HLC no futuro".into()));
+    }
+    if env.kind != EnvelopeKind::Text {
+        return Err(Error::Protocol(
+            "tipo de envelope ainda não suportado".into(),
+        ));
+    }
+    let (id, pk) = (env.id, author.identity_pk);
+    if store.run(move |c| store::envelope_exists(c, &id)).await? {
+        return Ok((Ingest::Duplicate, pk));
+    }
+    let plain = env.open(identity)?;
+    if plain.len() > MAX_TEXT_BYTES || std::str::from_utf8(&plain).is_err() {
+        return Err(Error::Protocol("texto inválido".into()));
+    }
+    let inserted = store
+        .run(move |c| store::envelope_insert(c, &env, Some(&plain), false, now))
+        .await?;
+    Ok((
+        if inserted {
+            Ingest::Stored
+        } else {
+            Ingest::Duplicate
+        },
+        pk,
+    ))
+}
+
 /// Parâmetros de uma sessão.
 pub struct Session<'a> {
     pub store: &'a Store,
@@ -104,6 +156,27 @@ pub struct Session<'a> {
     pub max_frame: usize,
     /// Chamado para cada envelope novo guardado.
     pub on_stored: &'a (dyn Fn(&Envelope) + Send + Sync),
+    /// Hashes dos meus contatos mútuos (salgados com esta conversa), enviados no início.
+    pub common_hashes: Vec<[u8; 32]>,
+    /// Recebe os hashes de contatos mútuos do par.
+    pub on_common: &'a (dyn Fn(Vec<[u8; 32]>) + Send + Sync),
+    /// Recebe o papel anunciado pelo par (`RoleUpdate`).
+    pub on_role: &'a (dyn Fn(Role) + Send + Sync),
+    /// Se o meu papel mudar durante a sessão, anuncia ao par.
+    pub role_updates: Option<tokio::sync::watch::Receiver<Role>>,
+}
+
+/// Limite de hashes de contatos em comum por mensagem.
+pub const MAX_COMMON_HASHES: usize = 512;
+
+/// Hash de um contato `other` visto da conversa `conv`: só quem conhece a conversa e o contato
+/// consegue calculá-lo.
+pub fn common_hash(conv: &[u8; 32], other: &[u8; 32]) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    h.update(b"enxame/common/1\0");
+    h.update(conv);
+    h.update(other);
+    *h.finalize().as_bytes()
 }
 
 impl Session<'_> {
@@ -112,12 +185,49 @@ impl Session<'_> {
     }
 
     /// Roda a sessão até os dois lados enviarem e receberem `Bye`.
-    pub async fn run<R, W>(&self, r: &mut R, w: &mut W) -> Result<SyncStats>
+    pub async fn run<R, W>(&self, r: R, w: &mut W) -> Result<SyncStats>
     where
-        R: AsyncRead + Unpin,
+        R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin,
     {
+        // Um leitor dedicado entrega os frames por canal: assim a leitura é cancelável e o laço
+        // principal também reage a mudanças de papel enquanto espera o par.
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<SyncMsg>>(8);
+        let max = self.max_frame;
+        let reader = tokio::spawn(async move {
+            let mut r = r;
+            loop {
+                let msg = read_frame::<_, SyncMsg>(&mut r, max).await;
+                let failed = msg.is_err();
+                if tx.send(msg).await.is_err() || failed {
+                    break;
+                }
+            }
+        });
+        let result = self.run_inner(&mut rx, w).await;
+        reader.abort();
+        result
+    }
+
+    async fn run_inner<W>(
+        &self,
+        rx: &mut tokio::sync::mpsc::Receiver<Result<SyncMsg>>,
+        w: &mut W,
+    ) -> Result<SyncStats>
+    where
+        W: AsyncWrite + Unpin,
+    {
+        let mut role_rx = self.role_updates.clone();
         let mut stats = SyncStats::default();
+        if !self.common_hashes.is_empty() {
+            let hashes = self
+                .common_hashes
+                .iter()
+                .copied()
+                .take(MAX_COMMON_HASHES)
+                .collect();
+            self.send(w, &SyncMsg::Common { hashes }).await?;
+        }
         for conv in &self.conversations {
             let conv = *conv;
             let (heads, (count, hlc_max), digest) = self
@@ -157,9 +267,29 @@ impl Session<'_> {
             if bye_sent && bye_recv {
                 return Ok(stats);
             }
-            let msg: SyncMsg = tokio::time::timeout(IDLE_TIMEOUT, read_frame(r, self.max_frame))
-                .await
-                .map_err(|_| Error::Timeout("sessão de sincronização"))??;
+            let msg: SyncMsg = tokio::select! {
+                got = tokio::time::timeout(IDLE_TIMEOUT, rx.recv()) => match got {
+                    Err(_) => return Err(Error::Timeout("sessão de sincronização")),
+                    Ok(None) => return Err(Error::Net("o par encerrou a sessão".into())),
+                    Ok(Some(msg)) => msg?,
+                },
+                changed = async {
+                    match role_rx.as_mut() {
+                        Some(rx) => rx.changed().await.is_ok(),
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if changed {
+                        if let Some(rx) = role_rx.as_mut() {
+                            let role = *rx.borrow_and_update();
+                            self.send(w, &SyncMsg::RoleUpdate { role }).await?;
+                        }
+                    } else {
+                        role_rx = None;
+                    }
+                    continue;
+                }
+            };
             match msg {
                 SyncMsg::Heads {
                     conversation_id: conv,
@@ -272,6 +402,11 @@ impl Session<'_> {
                     };
                     stats.sent += envs.len();
                     for batch in self.batches(envs)? {
+                        if let SyncMsg::Envelopes { envelopes, .. } = &batch {
+                            for e in envelopes {
+                                stats.sent_bytes += postcard::to_stdvec(e).map_or(0, |v| v.len());
+                            }
+                        }
                         self.send(w, &batch).await?;
                     }
                 }
@@ -308,6 +443,10 @@ impl Session<'_> {
                     }
                 }
                 SyncMsg::Bye => bye_recv = true,
+                SyncMsg::Common { hashes } => {
+                    (self.on_common)(hashes.into_iter().take(MAX_COMMON_HASHES).collect());
+                }
+                SyncMsg::RoleUpdate { role } => (self.on_role)(role),
             }
         }
     }
@@ -412,8 +551,8 @@ mod tests {
 
     async fn sync_pair(a: &Node, b: &Node) -> (SyncStats, SyncStats) {
         let (ea, eb) = tokio::io::duplex(1 << 20);
-        let (mut ra, mut wa) = tokio::io::split(ea);
-        let (mut rb, mut wb) = tokio::io::split(eb);
+        let (ra, mut wa) = tokio::io::split(ea);
+        let (rb, mut wb) = tokio::io::split(eb);
         let nop = |_: &Envelope| {};
         let sa = Session {
             store: &a.store,
@@ -422,6 +561,10 @@ mod tests {
             conversations: vec![conv(a, b)],
             max_frame: 1 << 20,
             on_stored: &nop,
+            common_hashes: vec![],
+            on_common: &|_| {},
+            on_role: &|_| {},
+            role_updates: None,
         };
         let sb = Session {
             store: &b.store,
@@ -430,8 +573,12 @@ mod tests {
             conversations: vec![conv(a, b)],
             max_frame: 1 << 20,
             on_stored: &nop,
+            common_hashes: vec![],
+            on_common: &|_| {},
+            on_role: &|_| {},
+            role_updates: None,
         };
-        let (x, y) = tokio::join!(sa.run(&mut ra, &mut wa), sb.run(&mut rb, &mut wb));
+        let (x, y) = tokio::join!(sa.run(ra, &mut wa), sb.run(rb, &mut wb));
         (x.unwrap(), y.unwrap())
     }
 
@@ -569,7 +716,7 @@ mod tests {
         delivered: Vec<Envelope>,
     ) -> SyncStats {
         let (ea, eb) = tokio::io::duplex(1 << 20);
-        let (mut ra, mut wa) = tokio::io::split(ea);
+        let (ra, mut wa) = tokio::io::split(ea);
         let (rb, wb) = tokio::io::split(eb);
         let c = conv(victim, peer);
         let evil = tokio::spawn(evil_peer(rb, wb, c, advertised, delivered));
@@ -581,8 +728,12 @@ mod tests {
             conversations: vec![c],
             max_frame: 1 << 20,
             on_stored: &nop,
+            common_hashes: vec![],
+            on_common: &|_| {},
+            on_role: &|_| {},
+            role_updates: None,
         };
-        let out = tokio::time::timeout(Duration::from_secs(5), s.run(&mut ra, &mut wa)).await;
+        let out = tokio::time::timeout(Duration::from_secs(5), s.run(ra, &mut wa)).await;
         evil.abort();
         out.unwrap_or(Ok(SyncStats::default())).unwrap_or_default()
     }
@@ -640,6 +791,133 @@ mod tests {
         let env = make(&peer, &victim, far, vec![], "do futuro");
         let stats = run_against_evil(&victim, &peer, env.clone(), vec![env]).await;
         assert_eq!(stats.received, 0);
+    }
+
+    fn plain_session<'a>(
+        n: &'a Node,
+        peer: &Node,
+        on_common: &'a (dyn Fn(Vec<[u8; 32]>) + Send + Sync),
+        on_role: &'a (dyn Fn(Role) + Send + Sync),
+        roles: Option<tokio::sync::watch::Receiver<Role>>,
+        common: Vec<[u8; 32]>,
+    ) -> Session<'a> {
+        static NOP: fn(&Envelope) = |_| {};
+        Session {
+            store: &n.store,
+            identity: &n.id,
+            peer_pk: peer.id.identity_pk(),
+            conversations: vec![conv(n, peer)],
+            max_frame: 1 << 20,
+            on_stored: &NOP,
+            common_hashes: common,
+            on_common,
+            on_role,
+            role_updates: roles,
+        }
+    }
+
+    #[tokio::test]
+    async fn role_change_is_announced_to_the_peer_during_a_session() {
+        let (a, b) = (Node::new(), Node::new());
+        let (ea, eb) = tokio::io::duplex(1 << 20);
+        let (ra, mut wa) = tokio::io::split(ea);
+        let (mut rb, _wb) = tokio::io::split(eb);
+        let (tx, rx) = tokio::sync::watch::channel(Role::Peer);
+        let sa = plain_session(&a, &b, &|_| {}, &|_| {}, Some(rx), vec![]);
+        let driver = async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            tx.send(Role::Relay).unwrap();
+            loop {
+                match read_frame::<_, SyncMsg>(&mut rb, 1 << 20).await {
+                    Ok(SyncMsg::RoleUpdate { role }) => return role,
+                    Ok(_) => continue,
+                    Err(e) => panic!("sem RoleUpdate: {e}"),
+                }
+            }
+        };
+        let announced = tokio::select! {
+            _ = sa.run(ra, &mut wa) => panic!("a sessão terminou antes do anúncio"),
+            role = driver => role,
+        };
+        assert_eq!(announced, Role::Relay);
+    }
+
+    #[tokio::test]
+    async fn peer_role_and_common_contacts_are_delivered_to_callbacks() {
+        let (a, b) = (Node::new(), Node::new());
+        let c = conv(&a, &b);
+        let digest = a
+            .store
+            .run(move |db| store::conversation_digest(db, &c))
+            .await
+            .unwrap();
+        let (ea, eb) = tokio::io::duplex(1 << 20);
+        let (ra, mut wa) = tokio::io::split(ea);
+        let (_rb, mut wb) = tokio::io::split(eb);
+        let got_common = std::sync::Mutex::new(Vec::new());
+        let got_role = std::sync::Mutex::new(Vec::new());
+        let on_common = |h: Vec<[u8; 32]>| got_common.lock().unwrap().extend(h);
+        let on_role = |r: Role| got_role.lock().unwrap().push(r);
+        let sa = plain_session(
+            &a,
+            &b,
+            &on_common,
+            &on_role,
+            None,
+            vec![common_hash(&c, &[7; 32])],
+        );
+        let max = 1 << 20;
+        write_frame(
+            &mut wb,
+            &SyncMsg::Common {
+                hashes: vec![[1; 32], [2; 32]],
+            },
+            max,
+        )
+        .await
+        .unwrap();
+        write_frame(
+            &mut wb,
+            &SyncMsg::RoleUpdate {
+                role: Role::SuperPeer,
+            },
+            max,
+        )
+        .await
+        .unwrap();
+        write_frame(
+            &mut wb,
+            &SyncMsg::Heads {
+                conversation_id: c,
+                heads: vec![],
+                count: 0,
+                hlc_max: Hlc::ZERO,
+                digest,
+            },
+            max,
+        )
+        .await
+        .unwrap();
+        write_frame(&mut wb, &SyncMsg::Bye, max).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), sa.run(ra, &mut wa))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(*got_common.lock().unwrap(), vec![[1; 32], [2; 32]]);
+        assert_eq!(*got_role.lock().unwrap(), vec![Role::SuperPeer]);
+    }
+
+    #[test]
+    fn common_hash_is_bound_to_the_conversation_and_the_contact() {
+        let (c1, c2) = ([1u8; 32], [2u8; 32]);
+        let (x, y) = ([7u8; 32], [8u8; 32]);
+        assert_eq!(common_hash(&c1, &x), common_hash(&c1, &x));
+        assert_ne!(
+            common_hash(&c1, &x),
+            common_hash(&c2, &x),
+            "outra conversa, outro hash"
+        );
+        assert_ne!(common_hash(&c1, &x), common_hash(&c1, &y));
     }
 
     proptest! {

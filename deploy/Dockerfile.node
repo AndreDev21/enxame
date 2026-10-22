@@ -1,0 +1,20 @@
+# enxame-node: build a partir da raiz do repositório (contexto = ..).
+FROM rust:1-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN cargo build --release --locked -p enxame-node
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10001 --create-home enxame \
+ && mkdir /data && chown enxame /data
+COPY --from=build /src/target/release/enxame-node /usr/local/bin/enxame-node
+USER enxame
+ENV ENXAME_DATA_DIR=/data
+VOLUME /data
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD ["enxame-node", "health"]
+ENTRYPOINT ["enxame-node"]
+CMD ["run"]

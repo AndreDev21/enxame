@@ -12,8 +12,13 @@ name = "enxame-node"
 path = "src/main.rs"
 
 [dependencies]
-enxame-core = { workspace = true, features = ["os-keyring"] }
+# Sem `os-keyring`: servidores não têm Secret Service; a chave fica em arquivo 0600 no volume.
+enxame-core.workspace = true
 anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

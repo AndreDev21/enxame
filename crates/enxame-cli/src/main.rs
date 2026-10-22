@@ -21,6 +21,15 @@ struct Cli {
     /// Desliga a descoberta mDNS.
     #[arg(long, global = true)]
     no_mdns: bool,
+    /// Começa em modo jogo: nenhuma contribuição (papel `Leaf`).
+    #[arg(long, global = true)]
+    game_mode: bool,
+    /// Não contribui com a rede dos contatos (papel `Leaf`).
+    #[arg(long, global = true)]
+    no_contribute: bool,
+    /// Papel fixo (`leaf`, `leaf_plus`, `peer`, `relay`, `super_peer`) em vez de automático.
+    #[arg(long, global = true)]
+    role: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -83,6 +92,16 @@ fn load_config(cli: &Cli) -> Result<Config> {
     }
     if cli.no_mdns {
         cfg.mdns = false;
+    }
+    if cli.game_mode {
+        cfg.game_mode = true;
+    }
+    if cli.no_contribute {
+        cfg.contribute = false;
+    }
+    if let Some(r) = &cli.role {
+        enxame_core::RoleMode::parse(r)?;
+        cfg.role = r.clone();
     }
     Ok(cfg)
 }
@@ -163,6 +182,11 @@ async fn main() -> Result<()> {
             let sent = sent?;
             if sent.synced {
                 println!("Enviada e entregue.");
+            } else if sent.carriers > 0 {
+                println!(
+                    "Guardada; o contato está offline. {} contato(s) em comum vão carregá-la até ele voltar.",
+                    sent.carriers
+                );
             } else {
                 println!(
                     "Guardada; o contato está inacessível agora ({}). Segue na próxima sincronização.",
@@ -231,7 +255,13 @@ fn print_message(m: &enxame_core::Message) {
     } else {
         m.author_name.clone()
     };
-    println!("[{h:02}:{mi:02} UTC] {who}: {}", m.text);
+    // ✓ = o destinatário já recebeu (direto ou por recibo de um carrier); … = pendente.
+    let mark = match m.delivered {
+        Some(true) => " ✓",
+        Some(false) => " …",
+        None => "",
+    };
+    println!("[{h:02}:{mi:02} UTC] {who}{mark}: {}", m.text);
 }
 
 /// Conversa interativa. Fica online (aceita sessões do contato), mostra mensagens novas assim
@@ -273,6 +303,7 @@ async fn chat(cfg: Config, contact: &str) -> Result<()> {
                 Ok(Event::ContactRequested { display_name, fingerprint, .. }) => {
                     println!("(pedido de contato de {display_name} [{fingerprint}]; use `serve` para responder)");
                 }
+                Ok(Event::RoleChanged { from, to }) => println!("(papel: {from:?} → {to:?})"),
                 Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(_) => break,
             },
@@ -281,6 +312,10 @@ async fn chat(cfg: Config, contact: &str) -> Result<()> {
                 let line = line.trim();
                 if line == "/sair" { break; }
                 if line.is_empty() { continue; }
+                if line.starts_with('/') {
+                    chat_command(&node, line).await;
+                    continue;
+                }
                 match node.send_text(contact, line).await {
                     Ok(s) if s.synced => {}
                     Ok(_) => println!("(guardada; contato inacessível agora, segue depois)"),
@@ -291,6 +326,31 @@ async fn chat(cfg: Config, contact: &str) -> Result<()> {
     }
     node.shutdown().await;
     Ok(())
+}
+
+/// Comandos do chat: `/papel`, `/jogo on|off`, `/contribuir on|off`, `/contribuicao`.
+async fn chat_command(node: &Enxame, line: &str) {
+    let mut parts = line.split_whitespace();
+    let on = |a: Option<&str>| matches!(a, Some("on" | "sim" | "1"));
+    match parts.next() {
+        Some("/papel") => println!("(papel atual: {:?})", node.role()),
+        Some("/jogo") => {
+            node.set_game_mode(on(parts.next())).await;
+            println!("(modo jogo; papel atual: {:?})", node.role());
+        }
+        Some("/contribuir") => {
+            node.set_contribution(on(parts.next())).await;
+            println!("(papel atual: {:?})", node.role());
+        }
+        Some("/contribuicao") => match node.contribution_summary().await {
+            Ok(s) => println!(
+                "(mês {}: {} bytes servidos de {} permitidos; guardando {} mensagens de terceiros)",
+                s.month, s.bytes_served, s.budget_bytes, s.carry_items
+            ),
+            Err(e) => println!("erro: {e}"),
+        },
+        _ => println!("(comandos: /papel, /jogo on|off, /contribuir on|off, /contribuicao, /sair)"),
+    }
 }
 
 fn node_ttl_hours(cfg: &Config) -> u64 {
@@ -374,6 +434,7 @@ async fn serve(cfg: Config, auto_accept: bool) -> Result<()> {
                         print_message(&m);
                     }
                 }
+                Ok(Event::RoleChanged { from, to }) => println!("Papel: {from:?} → {to:?}"),
                 Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                 Err(_) => break,
             },
@@ -396,7 +457,7 @@ async fn serve(cfg: Config, auto_accept: bool) -> Result<()> {
 fn print_diag(r: &DiagReport) {
     println!("node id:   {}", r.endpoint_id);
     println!("keystore:  {}", r.keystore);
-    println!("papel:     {:?} (fixo até a Fase 3)", r.role);
+    println!("papel:     {:?}", r.role);
     println!(
         "NAT:       {:?} (udp: {}, público v4: {}, mapeamento varia por destino: {}, relay preferido: {})",
         r.nat.kind,

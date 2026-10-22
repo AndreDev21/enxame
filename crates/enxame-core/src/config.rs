@@ -36,6 +36,58 @@ impl RelaySetting {
     }
 }
 
+/// Limites de contribuição do usuário (spec 8.3). Sempre aplicados acima do papel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Budget {
+    /// Teto de banda servida a terceiros, em kbps. `None` = 30 % da estimativa passiva de upload
+    /// (sem estimativa ainda, sem teto).
+    pub max_contrib_kbps: Option<u64>,
+    /// Teto mensal de dados servidos a terceiros, em GB (padrão 20 no desktop).
+    pub max_contrib_gb_month: u64,
+    /// Quota de carry por contato, em MB. `None` = padrão do papel.
+    pub carry_quota_mb_per_contact: Option<u64>,
+    /// Quota total de carry, em MB. `None` = padrão do papel.
+    pub carry_quota_mb_total: Option<u64>,
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Self {
+            max_contrib_kbps: None,
+            max_contrib_gb_month: 20,
+            carry_quota_mb_per_contact: None,
+            carry_quota_mb_total: None,
+        }
+    }
+}
+
+/// Como o papel é escolhido.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RoleMode {
+    /// Automático, por sinais e histerese (padrão).
+    #[default]
+    Auto,
+    /// Fixo (nó headless: `super_peer`).
+    Fixed(crate::Role),
+}
+
+impl RoleMode {
+    /// Interpreta `auto`, `leaf`, `leaf_plus`, `peer`, `relay` ou `super_peer`.
+    pub fn parse(s: &str) -> Result<Self> {
+        use crate::Role::*;
+        Ok(match s.trim().to_lowercase().replace('-', "_").as_str() {
+            "" | "auto" => Self::Auto,
+            "leaf" => Self::Fixed(Leaf),
+            "leaf_plus" | "leafplus" => Self::Fixed(LeafPlus),
+            "peer" => Self::Fixed(Peer),
+            "relay" => Self::Fixed(Relay),
+            "super_peer" | "superpeer" => Self::Fixed(SuperPeer),
+            other => return Err(Error::Config(format!("papel `{other}` desconhecido"))),
+        })
+    }
+}
+
 /// Configuração do nó. Arquivo TOML em `<data_dir>/config.toml` + override por `ENXAME_*`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -58,6 +110,25 @@ pub struct Config {
     pub contact_request_timeout_secs: u64,
     /// Tempo máximo para discar um contato ao sincronizar.
     pub dial_timeout_secs: u64,
+    /// Papel: `auto` ou fixo (`super_peer` no nó headless).
+    pub role: String,
+    /// Contribuição ligada. Desligada, o papel é sempre `Leaf` (spec 8.3).
+    pub contribute: bool,
+    /// Modo jogo: força `Leaf` enquanto ligado.
+    pub game_mode: bool,
+    /// Tempo que a condição precisa se manter para promover a `LeafPlus`/`Peer`/`Relay`.
+    pub promote_after_secs: u64,
+    /// Idem para `SuperPeer`.
+    pub promote_after_super_secs: u64,
+    /// Intervalo da leitura de sinais e reavaliação do papel (0 desliga a tarefa).
+    pub role_interval_secs: u64,
+    /// Limites de contribuição.
+    pub budget: Budget,
+    /// Aceita sem perguntar qualquer pedido de contato. **Só para nós headless de uso
+    /// controlado**: quem tiver o ticket entra.
+    pub auto_accept_contacts: bool,
+    /// Fingerprints (hex) aceitas sem perguntar.
+    pub allowed_fingerprints: Vec<String>,
     /// Intervalo da sincronização automática com os contatos, em segundos (0 desliga).
     pub sync_interval_secs: u64,
     /// Validade padrão de um ticket.
@@ -76,6 +147,15 @@ impl Default for Config {
             mdns: true,
             dns_discovery: true,
             contact_request_timeout_secs: 300,
+            role: "auto".to_owned(),
+            contribute: true,
+            game_mode: false,
+            promote_after_secs: 120,
+            promote_after_super_secs: 600,
+            role_interval_secs: 10,
+            budget: Budget::default(),
+            auto_accept_contacts: false,
+            allowed_fingerprints: Vec::new(),
             dial_timeout_secs: 15,
             sync_interval_secs: 30,
             ticket_ttl_secs: 24 * 3600,
@@ -98,19 +178,56 @@ impl Config {
             Err(e) => return Err(e.into()),
         };
         cfg.data_dir = data_dir;
-        if let Ok(v) = std::env::var("ENXAME_DISPLAY_NAME") {
+        if let Some(v) = env_nonempty("ENXAME_DISPLAY_NAME") {
             cfg.display_name = v;
         }
-        if let Ok(v) = std::env::var("ENXAME_RELAY") {
+        if let Some(v) = env_nonempty("ENXAME_RELAY") {
             cfg.relay = RelaySetting::parse(&v)?;
         }
-        if let Some(v) = std::env::var_os("ENXAME_RELAY_CA_FILE") {
+        if let Some(v) = env_nonempty("ENXAME_RELAY_CA_FILE") {
             cfg.relay_ca_file = Some(PathBuf::from(v));
         }
-        if let Ok(v) = std::env::var("ENXAME_MDNS") {
+        if let Some(v) = env_nonempty("ENXAME_MDNS") {
             cfg.mdns = !matches!(v.as_str(), "0" | "false" | "off");
         }
-        if let Ok(v) = std::env::var("ENXAME_DNS_DISCOVERY") {
+        if let Some(v) = env_nonempty("ENXAME_ROLE") {
+            cfg.role = v;
+        }
+        if let Some(v) = env_nonempty("ENXAME_CONTRIBUTE") {
+            cfg.contribute = !matches!(v.as_str(), "0" | "false" | "off");
+        }
+        if let Some(v) = env_nonempty("ENXAME_GAME_MODE") {
+            cfg.game_mode = matches!(v.as_str(), "1" | "true" | "on");
+        }
+        if let Some(v) = env_nonempty("ENXAME_MAX_CONTRIB_KBPS") {
+            cfg.budget.max_contrib_kbps = Some(
+                v.parse()
+                    .map_err(|_| Error::Config("ENXAME_MAX_CONTRIB_KBPS".into()))?,
+            );
+        }
+        if let Some(v) = env_nonempty("ENXAME_MAX_CONTRIB_GB_MONTH") {
+            cfg.budget.max_contrib_gb_month = v
+                .parse()
+                .map_err(|_| Error::Config("ENXAME_MAX_CONTRIB_GB_MONTH".into()))?;
+        }
+        if let Some(v) = env_nonempty("ENXAME_CARRY_QUOTA_MB_TOTAL") {
+            cfg.budget.carry_quota_mb_total = Some(
+                v.parse()
+                    .map_err(|_| Error::Config("ENXAME_CARRY_QUOTA_MB_TOTAL".into()))?,
+            );
+        }
+        if let Some(v) = env_nonempty("ENXAME_AUTO_ACCEPT_CONTACTS") {
+            cfg.auto_accept_contacts = matches!(v.as_str(), "1" | "true" | "on");
+        }
+        if let Some(v) = env_nonempty("ENXAME_ALLOWED_FINGERPRINTS") {
+            cfg.allowed_fingerprints = v
+                .split(',')
+                .map(|x| x.trim().to_lowercase())
+                .filter(|x| !x.is_empty())
+                .collect();
+        }
+        RoleMode::parse(&cfg.role)?;
+        if let Some(v) = env_nonempty("ENXAME_DNS_DISCOVERY") {
             cfg.dns_discovery = !matches!(v.as_str(), "0" | "false" | "off");
         }
         Ok(cfg)
@@ -126,9 +243,16 @@ impl Config {
             dns_discovery: false,
             dial_timeout_secs: 3,
             sync_interval_secs: 0,
+            role_interval_secs: 0,
             ..Self::default()
         }
     }
+}
+
+/// Variável de ambiente definida e não vazia (`VAR=` conta como ausente, o que facilita o
+/// `docker compose` com valores opcionais).
+fn env_nonempty(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.trim().is_empty())
 }
 
 /// Diretório de dados padrão por SO (XDG no Linux, `%APPDATA%` no Windows).

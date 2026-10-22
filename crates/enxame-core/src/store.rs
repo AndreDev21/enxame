@@ -55,6 +55,70 @@ const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (child, parent)
      ) WITHOUT ROWID;
      CREATE INDEX envelope_parents_by_parent ON envelope_parents(parent);",
+    // v2: carry, recibos, entrega pendente, contabilidade de contribuição.
+    "-- mensagens minhas ainda não entregues ao destinatário
+     CREATE TABLE pending_delivery (
+        envelope_id BLOB PRIMARY KEY,
+        recipient   BLOB NOT NULL,
+        created_at  INTEGER NOT NULL
+     ) WITHOUT ROWID;
+     CREATE INDEX pending_by_recipient ON pending_delivery(recipient);
+     -- a quem já ofereci cada mensagem para carregar
+     CREATE TABLE carry_offers_sent (
+        envelope_id BLOB NOT NULL,
+        carrier     BLOB NOT NULL,
+        offered_at  INTEGER NOT NULL,
+        PRIMARY KEY (envelope_id, carrier)
+     ) WITHOUT ROWID;
+     -- envelopes de terceiros que eu guardo para entregar
+     CREATE TABLE carry_queue (
+        envelope_id  BLOB PRIMARY KEY,
+        recipient    BLOB NOT NULL,
+        from_contact BLOB NOT NULL,
+        raw          BLOB NOT NULL,
+        size         INTEGER NOT NULL,
+        accepted_at  INTEGER NOT NULL,
+        expires_at   INTEGER NOT NULL
+     ) WITHOUT ROWID;
+     CREATE INDEX carry_by_recipient ON carry_queue(recipient);
+     CREATE INDEX carry_by_contact ON carry_queue(from_contact);
+     -- recibos assinados (envelope kind = Receipt) e os ids que confirmam
+     CREATE TABLE receipts (
+        id         BLOB PRIMARY KEY,
+        author     BLOB NOT NULL,
+        raw        BLOB NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+     ) WITHOUT ROWID;
+     CREATE TABLE receipt_acks (
+        envelope_id BLOB NOT NULL,
+        author      BLOB NOT NULL,
+        receipt_id  BLOB NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+        PRIMARY KEY (envelope_id, author)
+     ) WITHOUT ROWID;
+     CREATE INDEX receipt_acks_by_receipt ON receipt_acks(receipt_id);
+     -- contatos em comum com cada par (para escolher carriers)
+     CREATE TABLE common_contacts (
+        peer  BLOB NOT NULL,
+        other BLOB NOT NULL,
+        PRIMARY KEY (peer, other)
+     ) WITHOUT ROWID;
+     -- confiabilidade e último papel conhecido de cada contato
+     CREATE TABLE contact_reliability (
+        identity_pk BLOB PRIMARY KEY,
+        attempts    INTEGER NOT NULL DEFAULT 0,
+        successes   INTEGER NOT NULL DEFAULT 0,
+        last_seen   INTEGER NOT NULL DEFAULT 0,
+        last_role   INTEGER
+     ) WITHOUT ROWID;
+     -- quanto servi a terceiros, por mês (AAAAMM) e por contato
+     CREATE TABLE contribution_stats (
+        month        INTEGER NOT NULL,
+        contact      BLOB NOT NULL,
+        bytes_served INTEGER NOT NULL DEFAULT 0,
+        items        INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (month, contact)
+     ) WITHOUT ROWID;",
 ];
 
 fn db<E: std::fmt::Display>(e: E) -> Error {
@@ -453,6 +517,394 @@ pub fn conversation_envelopes(conn: &Connection, conv: &[u8; 32]) -> Result<Vec<
     Ok(out)
 }
 
+// ------------------------------------------------- entrega pendente e carry
+
+/// Registra uma mensagem minha como ainda não entregue a `recipient`.
+pub fn pending_add(
+    conn: &Connection,
+    id: &[u8; 32],
+    recipient: &[u8; 32],
+    now_ms: u64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO pending_delivery (envelope_id, recipient, created_at) VALUES (?1,?2,?3)",
+        params![id.as_slice(), recipient.as_slice(), now_ms as i64],
+    )
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Ids pendentes de entrega a `recipient`, do mais antigo ao mais novo.
+pub fn pending_list(conn: &Connection, recipient: &[u8; 32]) -> Result<Vec<[u8; 32]>> {
+    let mut stmt = conn
+        .prepare("SELECT envelope_id FROM pending_delivery WHERE recipient = ?1 ORDER BY created_at, envelope_id")
+        .map_err(db)?;
+    let rows = stmt
+        .query_map([recipient.as_slice()], |r| r.get::<_, Vec<u8>>(0))
+        .map_err(db)?;
+    rows.map(|r| arr32(r.map_err(db)?)).collect()
+}
+
+/// Remove da lista de pendentes (entregue direto ou confirmado por recibo).
+pub fn pending_remove(conn: &Connection, ids: &[[u8; 32]], recipient: &[u8; 32]) -> Result<()> {
+    for id in ids {
+        conn.execute(
+            "DELETE FROM pending_delivery WHERE envelope_id = ?1 AND recipient = ?2",
+            params![id.as_slice(), recipient.as_slice()],
+        )
+        .map_err(db)?;
+    }
+    Ok(())
+}
+
+/// Registra que oferecemos `id` ao `carrier`.
+pub fn offer_record(
+    conn: &Connection,
+    id: &[u8; 32],
+    carrier: &[u8; 32],
+    now_ms: u64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO carry_offers_sent (envelope_id, carrier, offered_at) VALUES (?1,?2,?3)",
+        params![id.as_slice(), carrier.as_slice(), now_ms as i64],
+    )
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Carriers a quem `id` já foi oferecido e aceito.
+pub fn offered_carriers(conn: &Connection, id: &[u8; 32]) -> Result<Vec<[u8; 32]>> {
+    let mut stmt = conn
+        .prepare("SELECT carrier FROM carry_offers_sent WHERE envelope_id = ?1")
+        .map_err(db)?;
+    let rows = stmt
+        .query_map([id.as_slice()], |r| r.get::<_, Vec<u8>>(0))
+        .map_err(db)?;
+    rows.map(|r| arr32(r.map_err(db)?)).collect()
+}
+
+/// Bytes e itens em carry, no total e vindos de um contato.
+pub fn carry_usage(conn: &Connection, from_contact: &[u8; 32]) -> Result<(u64, u64)> {
+    let total: i64 = conn
+        .query_row("SELECT COALESCE(SUM(size), 0) FROM carry_queue", [], |r| {
+            r.get(0)
+        })
+        .map_err(db)?;
+    let from: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(size), 0) FROM carry_queue WHERE from_contact = ?1",
+            [from_contact.as_slice()],
+            |r| r.get(0),
+        )
+        .map_err(db)?;
+    Ok((total as u64, from as u64))
+}
+
+/// Número de itens guardados para carregar.
+pub fn carry_count(conn: &Connection) -> Result<u64> {
+    let n: i64 = conn
+        .query_row("SELECT COUNT(*) FROM carry_queue", [], |r| r.get(0))
+        .map_err(db)?;
+    Ok(n as u64)
+}
+
+/// Guarda um envelope de terceiros para entregar a `recipient`. `false` se já existia.
+pub fn carry_insert(
+    conn: &Connection,
+    env: &Envelope,
+    recipient: &[u8; 32],
+    from_contact: &[u8; 32],
+    now_ms: u64,
+    ttl_ms: u64,
+) -> Result<bool> {
+    let raw = postcard::to_stdvec(env)?;
+    let n = conn
+        .execute(
+            "INSERT OR IGNORE INTO carry_queue (envelope_id, recipient, from_contact, raw, size, accepted_at, expires_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                env.id.as_slice(),
+                recipient.as_slice(),
+                from_contact.as_slice(),
+                raw,
+                raw.len() as i64,
+                now_ms as i64,
+                now_ms.saturating_add(ttl_ms) as i64,
+            ],
+        )
+        .map_err(db)?;
+    Ok(n == 1)
+}
+
+pub fn carry_has(conn: &Connection, id: &[u8; 32]) -> Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM carry_queue WHERE envelope_id = ?1",
+        [id.as_slice()],
+        |_| Ok(()),
+    )
+    .optional()
+    .map(|o| o.is_some())
+    .map_err(db)
+}
+
+/// Envelopes que carrego para `recipient`, do mais antigo ao mais novo.
+pub fn carry_for(conn: &Connection, recipient: &[u8; 32]) -> Result<Vec<Envelope>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT raw FROM carry_queue WHERE recipient = ?1 ORDER BY accepted_at, envelope_id",
+        )
+        .map_err(db)?;
+    let rows = stmt
+        .query_map([recipient.as_slice()], |r| r.get::<_, Vec<u8>>(0))
+        .map_err(db)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(postcard::from_bytes(&r.map_err(db)?)?);
+    }
+    Ok(out)
+}
+
+/// Remove o que passou do prazo (carry e recibos).
+pub fn expire(conn: &Connection, now_ms: u64) -> Result<(usize, usize)> {
+    let c = conn
+        .execute(
+            "DELETE FROM carry_queue WHERE expires_at <= ?1",
+            [now_ms as i64],
+        )
+        .map_err(db)?;
+    let r = conn
+        .execute(
+            "DELETE FROM receipts WHERE expires_at <= ?1",
+            [now_ms as i64],
+        )
+        .map_err(db)?;
+    Ok((c, r))
+}
+
+// ----------------------------------------------------------------- recibos
+
+/// Guarda um recibo verificado e expurga o que ele confirma. Devolve `(novo, expurgados)`.
+pub fn receipt_store(
+    conn: &mut Connection,
+    receipt: &Envelope,
+    now_ms: u64,
+    ttl_ms: u64,
+) -> Result<(bool, usize)> {
+    let raw = postcard::to_stdvec(receipt)?;
+    let tx = conn.transaction().map_err(db)?;
+    let n = tx
+        .execute(
+            "INSERT OR IGNORE INTO receipts (id, author, raw, created_at, expires_at) VALUES (?1,?2,?3,?4,?5)",
+            params![
+                receipt.id.as_slice(),
+                receipt.author.as_slice(),
+                raw,
+                now_ms as i64,
+                now_ms.saturating_add(ttl_ms) as i64
+            ],
+        )
+        .map_err(db)?;
+    let mut purged = 0;
+    for acked in &receipt.parents {
+        tx.execute(
+            "INSERT OR IGNORE INTO receipt_acks (envelope_id, author, receipt_id) VALUES (?1,?2,?3)",
+            params![acked.as_slice(), receipt.author.as_slice(), receipt.id.as_slice()],
+        )
+        .map_err(db)?;
+        purged += tx
+            .execute(
+                "DELETE FROM carry_queue WHERE envelope_id = ?1 AND recipient = ?2",
+                params![acked.as_slice(), receipt.author.as_slice()],
+            )
+            .map_err(db)?;
+        tx.execute(
+            "DELETE FROM pending_delivery WHERE envelope_id = ?1 AND recipient = ?2",
+            params![acked.as_slice(), receipt.author.as_slice()],
+        )
+        .map_err(db)?;
+    }
+    tx.commit().map_err(db)?;
+    Ok((n == 1, purged))
+}
+
+/// `id` já foi confirmado por um recibo do destinatário `author`?
+pub fn is_acked(conn: &Connection, id: &[u8; 32], author: &[u8; 32]) -> Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM receipt_acks WHERE envelope_id = ?1 AND author = ?2",
+        params![id.as_slice(), author.as_slice()],
+        |_| Ok(()),
+    )
+    .optional()
+    .map(|o| o.is_some())
+    .map_err(db)
+}
+
+/// Os recibos mais recentes (para espalhar aos pares).
+pub fn receipts_recent(conn: &Connection, limit: usize) -> Result<Vec<Envelope>> {
+    let mut stmt = conn
+        .prepare("SELECT raw FROM receipts ORDER BY created_at DESC, id LIMIT ?1")
+        .map_err(db)?;
+    let rows = stmt
+        .query_map([limit as i64], |r| r.get::<_, Vec<u8>>(0))
+        .map_err(db)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(postcard::from_bytes(&r.map_err(db)?)?);
+    }
+    Ok(out)
+}
+
+// ------------------------------------------------------ contatos em comum
+
+pub fn common_set(conn: &mut Connection, peer: &[u8; 32], others: &[[u8; 32]]) -> Result<()> {
+    let tx = conn.transaction().map_err(db)?;
+    tx.execute(
+        "DELETE FROM common_contacts WHERE peer = ?1",
+        [peer.as_slice()],
+    )
+    .map_err(db)?;
+    for o in others {
+        tx.execute(
+            "INSERT OR IGNORE INTO common_contacts (peer, other) VALUES (?1,?2)",
+            params![peer.as_slice(), o.as_slice()],
+        )
+        .map_err(db)?;
+    }
+    tx.commit().map_err(db)?;
+    Ok(())
+}
+
+pub fn common_get(conn: &Connection, peer: &[u8; 32]) -> Result<Vec<[u8; 32]>> {
+    let mut stmt = conn
+        .prepare("SELECT other FROM common_contacts WHERE peer = ?1")
+        .map_err(db)?;
+    let rows = stmt
+        .query_map([peer.as_slice()], |r| r.get::<_, Vec<u8>>(0))
+        .map_err(db)?;
+    rows.map(|r| arr32(r.map_err(db)?)).collect()
+}
+
+// ----------------------------------------------------------- confiabilidade
+
+/// Registra uma tentativa de falar com `pk` (e o papel visto, se conectou).
+pub fn reliability_record(
+    conn: &Connection,
+    pk: &[u8; 32],
+    ok: bool,
+    role: Option<crate::Role>,
+    now_ms: u64,
+) -> Result<()> {
+    let role_i = role.map(|r| r as i64);
+    conn.execute(
+        "INSERT INTO contact_reliability (identity_pk, attempts, successes, last_seen, last_role)
+         VALUES (?1, 1, ?2, ?3, ?4)
+         ON CONFLICT(identity_pk) DO UPDATE SET
+            attempts = attempts + 1,
+            successes = successes + ?2,
+            last_seen = CASE WHEN ?2 = 1 THEN ?3 ELSE last_seen END,
+            last_role = COALESCE(?4, last_role)",
+        params![pk.as_slice(), ok as i64, now_ms as i64, role_i],
+    )
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Guarda o papel anunciado por um contato sem contar como tentativa.
+pub fn reliability_set_role(
+    conn: &Connection,
+    pk: &[u8; 32],
+    role: crate::Role,
+    now_ms: u64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO contact_reliability (identity_pk, attempts, successes, last_seen, last_role)
+         VALUES (?1, 0, 0, ?2, ?3)
+         ON CONFLICT(identity_pk) DO UPDATE SET last_role = ?3",
+        params![pk.as_slice(), now_ms as i64, role as i64],
+    )
+    .map_err(db)?;
+    Ok(())
+}
+
+/// `(tentativas, sucessos, último papel)` de um contato.
+pub fn reliability_get(
+    conn: &Connection,
+    pk: &[u8; 32],
+) -> Result<(u64, u64, Option<crate::Role>)> {
+    let r: Option<(i64, i64, Option<i64>)> = conn
+        .query_row(
+            "SELECT attempts, successes, last_role FROM contact_reliability WHERE identity_pk = ?1",
+            [pk.as_slice()],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+        .map_err(db)?;
+    Ok(r.map_or((0, 0, None), |(a, s, role)| {
+        (a as u64, s as u64, role.and_then(role_from_i))
+    }))
+}
+
+fn role_from_i(i: i64) -> Option<crate::Role> {
+    use crate::Role::*;
+    [Leaf, LeafPlus, Peer, Relay, SuperPeer]
+        .get(usize::try_from(i).ok()?)
+        .copied()
+}
+
+// ------------------------------------------------------------ contribuição
+
+/// Soma ao que servi no mês (`AAAAMM`) para o contato.
+pub fn contribution_add(
+    conn: &Connection,
+    month: u32,
+    contact: &[u8; 32],
+    bytes: u64,
+    items: u64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO contribution_stats (month, contact, bytes_served, items) VALUES (?1,?2,?3,?4)
+         ON CONFLICT(month, contact) DO UPDATE SET
+            bytes_served = bytes_served + ?3, items = items + ?4",
+        params![month as i64, contact.as_slice(), bytes as i64, items as i64],
+    )
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Total servido no mês, em bytes.
+pub fn contribution_month_bytes(conn: &Connection, month: u32) -> Result<u64> {
+    let n: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(bytes_served), 0) FROM contribution_stats WHERE month = ?1",
+            [month as i64],
+            |r| r.get(0),
+        )
+        .map_err(db)?;
+    Ok(n as u64)
+}
+
+/// Por contato, no mês: `(contato, bytes, itens)`.
+pub fn contribution_by_contact(conn: &Connection, month: u32) -> Result<Vec<([u8; 32], u64, u64)>> {
+    let mut stmt = conn
+        .prepare("SELECT contact, bytes_served, items FROM contribution_stats WHERE month = ?1 ORDER BY bytes_served DESC")
+        .map_err(db)?;
+    let rows = stmt
+        .query_map([month as i64], |r| {
+            Ok((
+                r.get::<_, Vec<u8>>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(db)?;
+    let mut out = Vec::new();
+    for r in rows {
+        let (c, b, i) = r.map_err(db)?;
+        out.push((arr32(c)?, b as u64, i as u64));
+    }
+    Ok(out)
+}
+
 impl StoredEnvelope {
     pub fn order_item(&self) -> OrderItem {
         OrderItem {
@@ -594,6 +1046,145 @@ mod tests {
             want.sort();
             got.sort();
             assert_eq!(got, want);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn carry_queue_quota_expiry_and_receipts() {
+        let (a, b) = (Identity::generate(), Identity::generate());
+        let s = Store::open_in_memory().unwrap();
+        let old = env(&a, &b, Hlc::new(1, 0), vec![], "velha");
+        let fresh = env(&a, &b, Hlc::new(2, 0), vec![], "nova");
+        s.with(|c| {
+            // A primeira expira em 1 s, a segunda em 1 h.
+            assert!(carry_insert(
+                c,
+                &old,
+                &b.identity_pk(),
+                &a.identity_pk(),
+                1_000,
+                1_000
+            )?);
+            assert!(carry_insert(
+                c,
+                &fresh,
+                &b.identity_pk(),
+                &a.identity_pk(),
+                1_000,
+                3_600_000
+            )?);
+            assert!(
+                !carry_insert(
+                    c,
+                    &fresh,
+                    &b.identity_pk(),
+                    &a.identity_pk(),
+                    1_000,
+                    3_600_000
+                )?,
+                "duplicata"
+            );
+            let (total, from_a) = carry_usage(c, &a.identity_pk())?;
+            assert!(total > 0 && total == from_a);
+            assert_eq!(carry_usage(c, &[9; 32])?.1, 0);
+            assert_eq!(carry_count(c)?, 2);
+
+            // Passado o prazo, só a primeira some.
+            assert_eq!(expire(c, 5_000)?, (1, 0));
+            assert_eq!(carry_count(c)?, 1);
+            assert!(carry_has(c, &fresh.id)? && !carry_has(c, &old.id)?);
+            assert_eq!(carry_for(c, &b.identity_pk())?, vec![fresh.clone()]);
+            assert!(carry_for(c, &a.identity_pk())?.is_empty());
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn receipts_purge_only_the_authors_own_messages() {
+        let (a, b, m) = (
+            Identity::generate(),
+            Identity::generate(),
+            Identity::generate(),
+        );
+        let s = Store::open_in_memory().unwrap();
+        let e = env(&a, &b, Hlc::new(1, 0), vec![], "x");
+        let rec = |from: &Identity| {
+            Envelope::create(
+                from,
+                dm_conversation_id(&from.identity_pk(), &a.identity_pk()),
+                Hlc::new(5, 0),
+                vec![e.id],
+                &[crate::crypto::Recipient {
+                    identity_pk: a.identity_pk(),
+                    enc_pk: a.enc_pk(),
+                }],
+                EnvelopeKind::Receipt,
+                b"",
+            )
+            .unwrap()
+        };
+        s.with(|c| {
+            carry_insert(c, &e, &b.identity_pk(), &a.identity_pk(), 0, 1_000_000)?;
+            pending_add(c, &e.id, &b.identity_pk(), 0)?;
+            // Recibo de quem NÃO é o destinatário: guardado, mas não expurga nada.
+            let (new, purged) = receipt_store(c, &rec(&m), 10, 1_000_000)?;
+            assert!((new, purged) == (true, 0));
+            assert!(carry_has(c, &e.id)? && pending_list(c, &b.identity_pk())?.len() == 1);
+            assert!(!is_acked(c, &e.id, &b.identity_pk())?);
+            // Recibo do destinatário: expurga a cópia e a pendência.
+            let r = rec(&b);
+            assert_eq!(receipt_store(c, &r, 10, 1_000_000)?, (true, 1));
+            assert_eq!(
+                receipt_store(c, &r, 11, 1_000_000)?,
+                (false, 0),
+                "idempotente"
+            );
+            assert!(!carry_has(c, &e.id)? && pending_list(c, &b.identity_pk())?.is_empty());
+            assert!(is_acked(c, &e.id, &b.identity_pk())?);
+            assert_eq!(receipts_recent(c, 10)?.len(), 2);
+            // O recibo vence junto com o TTL.
+            assert_eq!(expire(c, 2_000_000)?, (0, 2));
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn contribution_and_reliability_accounting() {
+        let s = Store::open_in_memory().unwrap();
+        s.with(|c| {
+            let (x, y) = ([1u8; 32], [2u8; 32]);
+            contribution_add(c, 202610, &x, 1000, 2)?;
+            contribution_add(c, 202610, &x, 500, 1)?;
+            contribution_add(c, 202610, &y, 100, 1)?;
+            contribution_add(c, 202611, &x, 9999, 9)?;
+            assert_eq!(contribution_month_bytes(c, 202610)?, 1600);
+            assert_eq!(contribution_month_bytes(c, 202612)?, 0);
+            assert_eq!(
+                contribution_by_contact(c, 202610)?,
+                vec![(x, 1500, 3), (y, 100, 1)]
+            );
+
+            assert_eq!(reliability_get(c, &x)?, (0, 0, None));
+            reliability_record(c, &x, true, Some(crate::Role::Relay), 10)?;
+            reliability_record(c, &x, false, None, 20)?;
+            assert_eq!(
+                reliability_get(c, &x)?,
+                (2, 1, Some(crate::Role::Relay)),
+                "papel persiste"
+            );
+            reliability_set_role(c, &x, crate::Role::Peer, 30)?;
+            assert_eq!(reliability_get(c, &x)?.2, Some(crate::Role::Peer));
+
+            common_set(c, &x, &[y, [3; 32]])?;
+            let mut got = common_get(c, &x)?;
+            got.sort();
+            assert_eq!(got, vec![y, [3; 32]]);
+            common_set(c, &x, &[])?;
+            assert!(common_get(c, &x)?.is_empty());
             Ok(())
         })
         .unwrap();

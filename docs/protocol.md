@@ -93,3 +93,58 @@ Validação de cada envelope recebido: versão → `id` recalculado → assinatu
 com este par → autor é o par ou eu → HLC não está no futuro → tipo suportado → deduplicação por
 `id` → decifra → texto UTF-8 válido. Qualquer falha descarta só aquele envelope e registra em
 `tracing`.
+
+## Fase 3 — papéis, contatos em comum e carry
+
+### Mensagens novas em `enxame/sync/1`
+- `Common { hashes: Vec<[u8;32]> }` (até 512), enviada no início da sessão. Cada hash é
+  `BLAKE3("enxame/common/1\0" ‖ conversation_id ‖ identity_pk_do_contato)` para cada contato mútuo
+  de quem envia (exceto o par). O `conversation_id` é o da conversa 1:1 do par, então só quem é
+  contato de **ambos** reconhece o hash: os dois lados descobrem a **interseção** dos contatos sem
+  revelar o resto da agenda.
+- `RoleUpdate { role }`: enviada quando o papel de quem envia muda **durante** a sessão. Fora de
+  sessão, o papel vem no `Hello`. O receptor guarda o último papel visto de cada contato.
+
+### `enxame/carry/1` (store-and-forward)
+Aberto apenas por contatos mútuos (senão a conexão é fechada com `403`). Mensagens (`CarryMsg`):
+
+| Mensagem | Quem envia | Resposta |
+|---|---|---|
+| `Receipts { receipts, reply }` | os dois, no início e como resposta a `Deliver` (`reply = true`) | — |
+| `Deliver { envelopes }` | carrier → **destinatário** (ao encontrá-lo) | exatamente um `Receipts { reply: true }` |
+| `Offer { for_recipient, envelopes }` | autor → carrier ("carregue isto para fulano") | exatamente um `Accept { ids }` ou `Reject { reason }` |
+| `Bye` | os dois | — |
+
+`RejectReason`: `NotCarrying` (papel `Leaf`), `Quota`, `NotContact` (destinatário não é meu
+contato mútuo), `Invalid`. A sessão termina quando os dois enviaram e receberam `Bye`, que só é
+enviado sem respostas pendentes. Silêncio por mais de 30 s aborta.
+
+**Regras do carrier ao receber uma oferta:** papel que aceita carry; destinatário é contato
+mútuo meu e diferente do ofertante; cada envelope válido (`verify`), do tipo `Text`, com
+`author == ofertante`, com o destinatário entre os `recipients`, HLC não está no futuro e ainda
+sem recibo do destinatário; cabe nas quotas por contato e total. Reaceitar um envelope que já
+guarda é idempotente.
+
+**Regras do destinatário ao receber `Deliver`:** cada envelope vale se o autor é contato mútuo
+meu, a conversa é a 1:1 entre nós, não está no futuro e eu sou destinatário; o conteúdo vai para
+o histórico como mensagem recebida. Para cada autor, devolve um recibo dos ids (mesmo dos já
+duplicados).
+
+### Recibo
+Envelope `kind = Receipt` assinado pelo destinatário: os ids confirmados vão em `parents` (em
+claro — o carrier precisa lê-los), o conteúdo é vazio, `recipients = [autor da mensagem]`. Recibos
+**não** entram no DAG da conversa; ficam numa tabela própria por 30 dias. Quem recebe um recibo
+válido, de um contato mútuo, apaga as cópias e as pendências daquele destinatário com aqueles ids
+(`DELETE ... WHERE recipient = autor_do_recibo`: um recibo só vale para mensagens destinadas ao seu
+autor). Recibos são espalhados a cada sessão de carry (os 256 mais recentes).
+
+### Papéis (`Role`)
+`Leaf < LeafPlus < Peer < Relay < SuperPeer`. Limites de carry por papel (padrões):
+
+| Papel | Carry | Quota por contato / total | TTL |
+|---|---|---|---|
+| Leaf | não | — | — |
+| LeafPlus | só texto | 1 MB / 5 MB | 7 dias |
+| Peer | texto | 10 MB / 100 MB | 7 dias |
+| Relay | texto (e `FileRef` a partir da Fase 4) | 25 MB / 250 MB | 7 dias |
+| SuperPeer | alta quota | 100 MB / 2 GB | 30 dias |

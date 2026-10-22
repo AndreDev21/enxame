@@ -1,0 +1,13 @@
+# iroh-relay (mesma versão fixada no workspace; ver docs/adr/0002-stack.md).
+FROM rust:1-bookworm AS build
+RUN cargo install iroh-relay --version '=1.4.1' --features server --locked --root /out
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates bash \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/bin/iroh-relay /usr/local/bin/iroh-relay
+COPY relay/entrypoint.sh /entrypoint.sh
+VOLUME /data
+EXPOSE 80/tcp 443/tcp 7842/udp
+ENTRYPOINT ["/entrypoint.sh"]

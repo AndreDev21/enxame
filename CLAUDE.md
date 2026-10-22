@@ -57,9 +57,30 @@ cargo run -p enxame-cli -- --help
   `cargo test -p enxame-core --test messages` (nós in-process).
 - Config nova: `sync_interval_secs` (0 desliga a sincronização automática), `dial_timeout_secs`.
 
+## Fase 3 (papéis, carry, nó headless)
+
+- Módulos: `roles` (sinais, `target_role`, `RoleEngine` com histerese, estimativa passiva de
+  upload, `RateLimiter`, `CarryLimits`), `carry` (sessão `enxame/carry/1`, recibos), `node/runtime`
+  (laço de papéis) e `node/carry_flow` (discar, escolher carriers, oferecer). Decisões no ADR 0006;
+  wire em `docs/protocol.md`.
+- Um nó novo nasce em `Leaf` e só sobe depois de estável (120 s; 600 s para `SuperPeer`). `Leaf`
+  não carrega. Em testes use `role = "peer"` (papel fixo) ou `Enxame::tick_roles_at(Duration)` com
+  `StaticSignals` para simular o relógio.
+- Config nova: `role`, `contribute`, `game_mode`, `budget.*`, `promote_after_*`, `role_interval_secs`,
+  `allowed_fingerprints`, `auto_accept_contacts` (e `ENXAME_*` correspondentes; `VAR=` vazio vale
+  como ausente). CLI: `--role`, `--game-mode`, `--no-contribute`; no `chat`: `/papel`, `/jogo`,
+  `/contribuir`, `/contribuicao`.
+- `enxame-node`: `run` (padrão) e `health`; papel fixo `SuperPeer`; chave em arquivo no volume;
+  ticket em `<data>/node-ticket.txt`; saúde em `<data>/health`. Deploy em `deploy/`.
+- Guarda-corpo Android: `cargo check -p enxame-core --target aarch64-linux-android` (precisa do NDK:
+  veja o job `android` do CI para as variáveis `CC_`/`AR_`/linker).
+- Testes: `cargo test -p enxame-core --test carry` (cenário A, B, C, nó headless como C, quotas,
+  histerese com relógio simulado, budget, política de contatos).
+
 ## Estado
 
-- Fases 0, 1 e 2 implementadas, aguardando revisão. A Fase 1 foi validada em campo (Linux ↔ Linux,
+- Fases 0, 1, 2 e 3 implementadas; a 3 aguarda revisão e teste real do carry (A, B, C em máquinas
+  diferentes). Fases 0–2 revisadas. A Fase 1 foi validada em campo (Linux ↔ Linux,
   redes diferentes); Windows e 4G seguem sem teste. A Fase 2 foi validada em campo com duas
-  máquinas remotas (`docs/reports/fase2-mensagens.md`); falta Windows e 4G. Próxima: Fase 3 (papéis, carry, nó headless).
+  máquinas remotas (`docs/reports/fase2-mensagens.md`); falta Windows e 4G. Próxima: Fase 4 (arquivos).
 - Nome do projeto e `repository` no `Cargo.toml` são provisórios.

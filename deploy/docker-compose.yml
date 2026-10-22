@@ -1,0 +1,67 @@
+# iroh-relay (rendezvous/relay self-hosted) + enxame-node (SuperPeer 24/7).
+# Uso: cp .env.example .env, edite, e `docker compose up -d --build`. Veja README.md.
+name: enxame
+
+services:
+  relay:
+    build:
+      context: .
+      dockerfile: Dockerfile.relay
+    image: enxame/relay:local
+    restart: unless-stopped
+    environment:
+      RELAY_HOSTNAME: ${RELAY_HOSTNAME:?defina RELAY_HOSTNAME no .env}
+      RELAY_CERT_MODE: ${RELAY_CERT_MODE:-LetsEncrypt}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      ACME_PROD: ${ACME_PROD:-true}
+    ports:
+      - "80:80/tcp"
+      - "443:443/tcp"
+      - "7842:7842/udp"
+    volumes:
+      - relay-data:/data
+      # Para RELAY_CERT_MODE=Manual: monte o certificado em ./certs (relay.crt e relay.key).
+      - ./certs:/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/443'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+
+  node:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.node
+    image: enxame/node:local
+    restart: unless-stopped
+    environment:
+      ENXAME_DISPLAY_NAME: ${NODE_NAME:-enxame-node}
+      ENXAME_RELAY: https://${RELAY_HOSTNAME}
+      # Quem pode usar este nó (fingerprints de `enxame-cli id`), separadas por vírgula.
+      ENXAME_ALLOWED_FINGERPRINTS: ${ALLOWED_FINGERPRINTS:-}
+      # Budget de contribuição (spec 8.3).
+      ENXAME_MAX_CONTRIB_GB_MONTH: ${MAX_CONTRIB_GB_MONTH:-500}
+      ENXAME_MAX_CONTRIB_KBPS: ${MAX_CONTRIB_KBPS:-}
+      ENXAME_CARRY_QUOTA_MB_TOTAL: ${CARRY_QUOTA_MB_TOTAL:-2000}
+      ENXAME_MDNS: "0"
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - node-data:/data
+    depends_on:
+      relay:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 512M
+
+volumes:
+  relay-data:
+  node-data:

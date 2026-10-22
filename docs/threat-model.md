@@ -1,4 +1,4 @@
-# Modelo de ameaças (rascunho — Fases 1 e 2)
+# Modelo de ameaças (rascunho — Fases 1 a 3)
 
 Detalha a tabela da seção 12 da spec. Cobre só o que existe até a Fase 1 (identidade, contatos,
 conectividade); mensagens, carry e arquivos entram nas fases seguintes.
@@ -22,3 +22,13 @@ conectividade); mensagens, carry e arquivos entram nas fases seguintes.
 | Vazamento do disco | Chaves no keystore do SO | O banco com as mensagens **não é cifrado em repouso** (confie na cifragem de disco do SO) |
 | Chave de encriptação comprometida | — | Sem forward secrecy: expõe todo o histórico cifrado para essa chave (MLS pós-MVP) |
 | Metadados | — | Quem relaia/guarda vê `recipient`, tamanhos e horários dos envelopes; o par vê o HLC |
+| Carrier lê a mensagem que carrega | Envelope cifrado por destinatário (E2E) | O carrier vê `recipient`, tamanho, horário e `author_device` |
+| Flood de carry / encher o disco de um carrier | Só contatos mútuos; só mensagens do próprio ofertante; quota por contato e total por papel; TTL (7 ou 30 dias); `Leaf` não carrega | Um contato mal-intencionado consome a sua quota por contato |
+| Contato malicioso expurga mensagens de outro | Recibo vale só para mensagens destinadas ao **autor do recibo** (`recipient = autor`) | — |
+| Contato forja "entregue" para que o autor pare de tentar | Recibo é assinado pelo destinatário e verificado | Um recibo legítimo atrasado só deixa de pendurar a mensagem |
+| Carrier entrega mensagem alterada ou de outro autor | O destinatário reverifica `id` e assinatura, exige que o autor seja contato mútuo e a conversa seja a 1:1 | — |
+| Carrier retém/descarta a mensagem | Até 3 carriers (`K = 3`); o autor continua entregando direto quando o destinatário voltar | Carry é "melhor esforço": sem garantia de entrega |
+| Vazamento da agenda para descobrir contatos em comum | Só hashes salgados com a conversa 1:1; só a interseção é reconhecível | Quem já conhece uma identidade e a conversa pode testar se ela está na agenda do par |
+| Bug ou nó mal-intencionado derruba a rede | Papel é decisão local, sem estado global; promoções lentas; protocolos versionados | — |
+| Nó headless aceitando qualquer um | `allowed_fingerprints`; sem lista, recusa tudo | `auto_accept_contacts` abre o nó a quem tiver o ticket (uso controlado) |
+| Relay do nó / contêiner comprometido | Volume `/data` guarda a identidade do nó; usuário sem privilégios no contêiner | Quem lê o volume assume a identidade do nó (faça backup e proteja) |

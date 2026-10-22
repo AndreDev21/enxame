@@ -1,9 +1,12 @@
 //! `Enxame`: ponto de entrada da API do core (spec 3.1).
 
+mod carry_flow;
+mod runtime;
+
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, MutexGuard,
     },
     time::{Duration, Instant},
@@ -14,22 +17,24 @@ use iroh::{
     Endpoint, EndpointAddr, EndpointId,
 };
 use tokio::{
-    sync::{broadcast, oneshot},
+    sync::{broadcast, oneshot, watch},
     task::JoinHandle,
 };
 
 use crate::{
-    config::Config,
+    carry::{make_receipt, RECEIPT_TTL},
+    config::{Config, RoleMode},
     contacts::{self, Contact, ContactBook, ContactStatus},
     crypto::{dm_conversation_id, Envelope, EnvelopeKind, Recipient, MAX_TEXT_BYTES},
     hlc::{Hlc, HlcClock},
     identity::{fingerprint, unix_now, unix_now_ms, Identity, InviteTicket},
     keystore::KeyStore,
-    net::{self, NatReport, PathMetrics, PathMonitor},
+    net::{self, NatKind, NatReport, PathMetrics, PathMonitor},
     order::order_ids,
-    proto::{self, ContactMsg, Hello, ALPN_CONTACT, ALPN_SYNC, SUPPORTED_VERSIONS},
+    proto::{self, ContactMsg, Hello, ALPN_CARRY, ALPN_CONTACT, ALPN_SYNC, SUPPORTED_VERSIONS},
+    roles::{effective_kbps_cap, PlatformSignals, RateLimiter, RoleEngine, ThroughputEstimator},
     store::{self, Store},
-    sync::{Session, SyncStats},
+    sync::{common_hash, Session, SyncStats},
     Error, Event, Result, Role,
 };
 
@@ -78,7 +83,7 @@ pub struct DiagReport {
     pub endpoint_id: EndpointId,
     pub addr: EndpointAddr,
     pub nat: NatReport,
-    /// Papel atual. Fixo em `Leaf` até a Fase 3 (conservador).
+    /// Papel atual deste nó.
     pub role: Role,
     pub keystore: &'static str,
     pub peers: Vec<PeerDiag>,
@@ -94,6 +99,32 @@ pub struct Message {
     pub text: String,
     /// Quando este dispositivo guardou a mensagem (ms desde a época Unix).
     pub received_at_ms: u64,
+    /// Só para mensagens minhas: o destinatário já a recebeu (direto ou por recibo de um
+    /// carrier). `None` nas mensagens recebidas.
+    pub delivered: Option<bool>,
+}
+
+/// Opções de inicialização para integradores e testes.
+#[derive(Default)]
+pub struct StartOptions {
+    /// Fonte de sinais do SO. Padrão: Linux ou, nas outras plataformas, só CPU/memória.
+    pub signals: Option<Arc<dyn PlatformSignals>>,
+}
+
+/// Quanto este nó serviu a terceiros no mês e o que guarda para entregar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContributionSummary {
+    /// Mês (`AAAAMM`, UTC).
+    pub month: u32,
+    pub bytes_served: u64,
+    pub items_delivered: u64,
+    /// Teto mensal configurado, em bytes.
+    pub budget_bytes: u64,
+    /// `(contato, bytes, itens)` do mês.
+    pub by_contact: Vec<(String, u64, u64)>,
+    /// Envelopes de terceiros guardados para entregar.
+    pub carry_items: u64,
+    pub carry_bytes: u64,
 }
 
 /// Resultado de [`Enxame::send_text`].
@@ -104,6 +135,8 @@ pub struct SentMessage {
     /// guardada e segue no próximo contato (`error` diz por que a sessão falhou).
     pub synced: bool,
     pub error: Option<String>,
+    /// Contatos em comum que aceitaram carregar a mensagem até o destinatário voltar.
+    pub carriers: usize,
 }
 
 struct PendingEntry {
@@ -123,6 +156,16 @@ struct Inner {
     events: broadcast::Sender<Event>,
     pending: Mutex<HashMap<u64, PendingEntry>>,
     next_request: AtomicU64,
+    signals: Arc<dyn PlatformSignals>,
+    throughput: ThroughputEstimator,
+    role_mode: RoleMode,
+    engine: Mutex<RoleEngine>,
+    role_tx: watch::Sender<Role>,
+    game_mode: AtomicBool,
+    contribute: AtomicBool,
+    nat: Mutex<NatKind>,
+    started: Instant,
+    limiter: Mutex<(Option<u64>, Arc<RateLimiter>)>,
 }
 
 impl Inner {
@@ -143,13 +186,36 @@ impl Inner {
         let _ = self.events.send(ev);
     }
 
+    fn role(&self) -> Role {
+        *self.role_tx.borrow()
+    }
+
     fn our_hello(&self) -> Hello {
         Hello {
             device_cert: self.identity.device_cert(unix_now()),
             protocol_versions: SUPPORTED_VERSIONS.to_vec(),
-            role: Role::Leaf,
+            role: self.role(),
             capabilities: 0,
         }
+    }
+
+    /// Limitador de banda de contribuição, reconstruído quando o teto efetivo muda.
+    fn limiter(&self) -> Arc<RateLimiter> {
+        let cap = effective_kbps_cap(&self.cfg.budget, self.throughput.kbps());
+        let mut guard = self.limiter.lock().unwrap_or_else(|p| p.into_inner());
+        if guard.0 != cap {
+            *guard = (cap, Arc::new(RateLimiter::new(cap)));
+        }
+        guard.1.clone()
+    }
+
+    fn mutual_contacts(&self) -> Vec<Contact> {
+        self.book()
+            .list()
+            .iter()
+            .filter(|c| c.is_mutual())
+            .cloned()
+            .collect()
     }
 }
 
@@ -179,13 +245,22 @@ impl Enxame {
 
     /// Carrega (ou cria) a identidade, abre a agenda e sobe o endpoint.
     pub async fn start(cfg: Config, keystore: &dyn KeyStore) -> Result<Self> {
+        Self::start_with_options(cfg, keystore, StartOptions::default()).await
+    }
+
+    /// Como [`Enxame::start`], com [`StartOptions`].
+    pub async fn start_with_options(
+        cfg: Config,
+        keystore: &dyn KeyStore,
+        opts: StartOptions,
+    ) -> Result<Self> {
         std::fs::create_dir_all(&cfg.data_dir)?;
         let (identity, created) = Identity::load_or_create(keystore)?;
         if created {
             tracing::info!(fingerprint = %fingerprint(&identity.identity_pk()), "identidade criada");
         }
         let endpoint = net::bind_endpoint(&cfg, &identity).await?;
-        Self::start_with_endpoint(cfg, identity, keystore.describe(), endpoint)
+        Self::start_with_endpoint_opts(cfg, identity, keystore.describe(), endpoint, opts)
     }
 
     /// Como [`Enxame::start`], mas com um endpoint já criado pelo chamador (testes com relay
@@ -197,13 +272,46 @@ impl Enxame {
         keystore_name: &'static str,
         endpoint: Endpoint,
     ) -> Result<Self> {
+        Self::start_with_endpoint_opts(
+            cfg,
+            identity,
+            keystore_name,
+            endpoint,
+            StartOptions::default(),
+        )
+    }
+
+    /// Como [`Enxame::start_with_endpoint`], com [`StartOptions`].
+    pub fn start_with_endpoint_opts(
+        cfg: Config,
+        identity: Identity,
+        keystore_name: &'static str,
+        endpoint: Endpoint,
+        opts: StartOptions,
+    ) -> Result<Self> {
         if endpoint.id() != identity.endpoint_id() {
             return Err(Error::Config(
                 "o endpoint não usa a chave de dispositivo da identidade".into(),
             ));
         }
         std::fs::create_dir_all(&cfg.data_dir)?;
-        endpoint.set_alpns(vec![ALPN_CONTACT.to_vec(), ALPN_SYNC.to_vec()]);
+        endpoint.set_alpns(vec![
+            ALPN_CONTACT.to_vec(),
+            ALPN_SYNC.to_vec(),
+            ALPN_CARRY.to_vec(),
+        ]);
+        let role_mode = RoleMode::parse(&cfg.role)?;
+        let initial_role = match role_mode {
+            RoleMode::Fixed(r) => r,
+            RoleMode::Auto => Role::Leaf,
+        };
+        let signals: Arc<dyn PlatformSignals> = opts.signals.unwrap_or_else(default_signals);
+        let engine = RoleEngine::new(
+            Duration::from_secs(cfg.promote_after_secs),
+            Duration::from_secs(cfg.promote_after_super_secs),
+        );
+        let (role_tx, _) = watch::channel(initial_role);
+        let (game_mode, contribute) = (cfg.game_mode, cfg.contribute);
         let store = Store::open(&cfg.data_dir.join("enxame.db"))?;
         import_legacy_contacts(&cfg, &store)?;
         let contacts = ContactBook::open(store.clone())?;
@@ -221,15 +329,78 @@ impl Enxame {
             events,
             pending: Mutex::new(HashMap::new()),
             next_request: AtomicU64::new(1),
+            signals,
+            throughput: ThroughputEstimator::default(),
+            role_mode,
+            engine: Mutex::new(engine),
+            role_tx,
+            game_mode: AtomicBool::new(game_mode),
+            contribute: AtomicBool::new(contribute),
+            nat: Mutex::new(NatKind::Unknown),
+            started: Instant::now(),
+            limiter: Mutex::new((None, Arc::new(RateLimiter::new(None)))),
         });
         let mut tasks = vec![tokio::spawn(accept_loop(inner.clone()))];
         if inner.cfg.sync_interval_secs > 0 {
             tasks.push(tokio::spawn(sync_loop(inner.clone())));
         }
+        if inner.cfg.role_interval_secs > 0 {
+            tasks.push(tokio::spawn(runtime::role_loop(inner.clone())));
+            tasks.push(tokio::spawn(runtime::nat_loop(inner.clone())));
+        }
         Ok(Self {
             inner,
             tasks: Arc::new(tasks),
         })
+    }
+
+    /// Papel atual deste nó.
+    pub fn role(&self) -> Role {
+        self.inner.role()
+    }
+
+    /// Liga ou desliga o modo jogo (força `Leaf`). O rebaixamento é imediato.
+    pub async fn set_game_mode(&self, on: bool) -> Option<(Role, Role)> {
+        self.inner.game_mode.store(on, Ordering::Relaxed);
+        runtime::tick_roles(&self.inner, self.inner.started.elapsed()).await
+    }
+
+    /// Liga ou desliga a contribuição. Desligada, o papel é `Leaf`.
+    pub async fn set_contribution(&self, on: bool) -> Option<(Role, Role)> {
+        self.inner.contribute.store(on, Ordering::Relaxed);
+        runtime::tick_roles(&self.inner, self.inner.started.elapsed()).await
+    }
+
+    /// Reavalia o papel como se `at` tivesse passado desde o início (relógio simulado).
+    #[doc(hidden)]
+    pub async fn tick_roles_at(&self, at: Duration) -> Option<(Role, Role)> {
+        runtime::tick_roles(&self.inner, at).await
+    }
+
+    /// Último papel conhecido de um contato (visto no `Hello` ou em `RoleUpdate`).
+    pub fn peer_role(&self, contact: &str) -> Result<Option<Role>> {
+        let c = self.inner.book().resolve(contact)?.clone();
+        let (_, _, role) = self
+            .inner
+            .store
+            .with(|db| store::reliability_get(db, &c.identity_pk))?;
+        Ok(role)
+    }
+
+    /// Contribuição do mês e o que está guardado para entregar a terceiros.
+    pub async fn contribution_summary(&self) -> Result<ContributionSummary> {
+        runtime::contribution_summary(&self.inner).await
+    }
+
+    /// Sincroniza e troca carry com um contato mútuo agora (útil em testes e na CLI).
+    pub async fn carry_now(&self, contact: &str) -> Result<crate::carry::CarryStats> {
+        let c = self.inner.book().resolve(contact)?.clone();
+        if !c.is_mutual() {
+            return Err(Error::Contact(
+                "o contato ainda não aceitou (não é mútuo)".into(),
+            ));
+        }
+        carry_flow::carry_with(&self.inner, &c, vec![]).await
     }
 
     /// Para de aceitar conexões e fecha o endpoint.
@@ -380,7 +551,7 @@ impl Enxame {
             endpoint_id: inner.endpoint.id(),
             addr: inner.endpoint.addr(),
             nat,
-            role: Role::Leaf,
+            role: inner.role(),
             keystore: inner.keystore_name,
             peers,
         })
@@ -428,22 +599,30 @@ impl Enxame {
         )?;
         let id = env.id;
         let plain = text.as_bytes().to_vec();
+        let cpk = c.identity_pk;
         inner
             .store
-            .run(move |db| store::envelope_insert(db, &env, Some(&plain), true, unix_now_ms()))
+            .run(move |db| {
+                store::envelope_insert(db, &env, Some(&plain), true, unix_now_ms())?;
+                store::pending_add(db, &id, &cpk, unix_now_ms())
+            })
             .await?;
         match sync_with(inner, &c).await {
             Ok(_) => Ok(SentMessage {
                 id,
                 synced: true,
                 error: None,
+                carriers: 0,
             }),
             Err(e) => {
                 tracing::debug!("mensagem guardada, par inacessível: {e}");
+                // Contato offline: pede a contatos em comum que carreguem até ele voltar.
+                let carriers = carry_flow::offer_to_carriers(inner, &c).await.unwrap_or(0);
                 Ok(SentMessage {
                     id,
                     synced: false,
                     error: Some(e.to_string()),
+                    carriers,
                 })
             }
         }
@@ -466,9 +645,15 @@ impl Enxame {
         let inner = &self.inner;
         let c = inner.book().resolve(contact)?.clone();
         let conv = dm_conversation_id(&inner.identity.identity_pk(), &c.identity_pk);
-        let all = inner
+        let cpk = c.identity_pk;
+        let (all, pending) = inner
             .store
-            .run(move |db| store::conversation_envelopes(db, &conv))
+            .run(move |db| {
+                let all = store::conversation_envelopes(db, &conv)?;
+                let pending: HashSet<[u8; 32]> =
+                    store::pending_list(db, &cpk)?.into_iter().collect();
+                Ok((all, pending))
+            })
             .await?;
         let order = order_ids(&all.iter().map(|s| s.order_item()).collect::<Vec<_>>());
         let by_id: HashMap<[u8; 32], &store::StoredEnvelope> =
@@ -489,6 +674,7 @@ impl Enxame {
                 text: String::from_utf8_lossy(s.plaintext.as_deref().unwrap_or_default())
                     .into_owned(),
                 received_at_ms: s.received_at,
+                delivered: s.outgoing.then(|| !pending.contains(&s.envelope.id)),
             })
             .collect();
         let skip = out.len().saturating_sub(limit);
@@ -536,6 +722,16 @@ impl Enxame {
         conn.close(0u32.into(), b"diag done");
         out
     }
+}
+
+#[cfg(target_os = "linux")]
+fn default_signals() -> Arc<dyn PlatformSignals> {
+    Arc::new(crate::roles::LinuxSignals::new())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn default_signals() -> Arc<dyn PlatformSignals> {
+    Arc::new(crate::roles::FallbackSignals::new())
 }
 
 /// Lê a agenda sem subir a rede (para `contacts`).
@@ -618,18 +814,28 @@ async fn hello_exchange(
     Ok((hello, send, recv))
 }
 
-/// Roda a sessão de sincronização com `c` sobre um par de streams.
+/// Roda a sessão de sincronização com `c` sobre um par de streams e, se terminar bem: limpa as
+/// minhas mensagens que o par acabou de receber, emite recibos pelo que recebi e grava os
+/// contatos em comum.
 async fn run_session(
     inner: &Inner,
     c: &Contact,
-    recv: &mut RecvStream,
+    recv: RecvStream,
     send: &mut SendStream,
 ) -> Result<SyncStats> {
     let me = inner.identity.identity_pk();
+    let conv = dm_conversation_id(&me, &c.identity_pk);
+    let peer_pk = c.identity_pk;
     let name = c.display_name.clone();
     let peer_fp = c.fingerprint();
-    let on_stored = move |env: &Envelope| {
+    let stored_ids: Mutex<Vec<[u8; 32]>> = Mutex::new(Vec::new());
+    let common_in: Mutex<Vec<[u8; 32]>> = Mutex::new(Vec::new());
+    let on_stored = |env: &Envelope| {
         if env.author != me {
+            stored_ids
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push(env.id);
             inner.emit(Event::MessageReceived {
                 conversation_id: env.conversation_id,
                 id: env.id,
@@ -639,28 +845,106 @@ async fn run_session(
         }
         inner.clock().observe(env.hlc, unix_now_ms());
     };
+    let on_common = |hashes: Vec<[u8; 32]>| {
+        *common_in.lock().unwrap_or_else(|p| p.into_inner()) = hashes;
+    };
+    let on_role = |role: Role| {
+        let _ = inner
+            .store
+            .with(|db| store::reliability_set_role(db, &peer_pk, role, unix_now_ms()));
+    };
+    let mutual = inner.mutual_contacts();
+    let common_hashes: Vec<[u8; 32]> = mutual
+        .iter()
+        .filter(|x| x.identity_pk != peer_pk)
+        .map(|x| common_hash(&conv, &x.identity_pk))
+        .collect();
+    let snapshot = inner
+        .store
+        .run(move |db| store::pending_list(db, &peer_pk))
+        .await?;
     let session = Session {
         store: &inner.store,
         identity: &inner.identity,
-        peer_pk: c.identity_pk,
-        conversations: vec![dm_conversation_id(&me, &c.identity_pk)],
+        peer_pk,
+        conversations: vec![conv],
         max_frame: inner.cfg.max_frame_bytes,
         on_stored: &on_stored,
+        common_hashes,
+        on_common: &on_common,
+        on_role: &on_role,
+        role_updates: Some(inner.role_tx.subscribe()),
     };
-    session.run(recv, send).await
+    let started = Instant::now();
+    let stats = session.run(recv, send).await?;
+    // Banda realmente usada para enviar: alimenta a estimativa passiva de upload.
+    inner.throughput.record(stats.sent_bytes, started.elapsed());
+
+    // O par terminou a sessão tendo recebido tudo o que eu tinha: nada mais está pendente.
+    inner
+        .store
+        .run(move |db| store::pending_remove(db, &snapshot, &peer_pk))
+        .await?;
+
+    // Recibos pelo que recebi do par (para carriers que ainda guardam cópia expurgarem).
+    let ids = std::mem::take(&mut *stored_ids.lock().unwrap_or_else(|p| p.into_inner()));
+    for chunk in ids.chunks(crate::crypto::MAX_PARENTS) {
+        let hlc = inner.clock().tick(unix_now_ms());
+        let receipt = make_receipt(&inner.identity, c, chunk, hlc)?;
+        let (now, ttl) = (unix_now_ms(), RECEIPT_TTL.as_millis() as u64);
+        inner
+            .store
+            .run(move |db| store::receipt_store(db, &receipt, now, ttl))
+            .await?;
+    }
+
+    // Contatos em comum com este par.
+    let theirs: HashSet<[u8; 32]> =
+        std::mem::take(&mut *common_in.lock().unwrap_or_else(|p| p.into_inner()))
+            .into_iter()
+            .collect();
+    let others: Vec<[u8; 32]> = mutual
+        .iter()
+        .filter(|x| {
+            x.identity_pk != peer_pk && theirs.contains(&common_hash(&conv, &x.identity_pk))
+        })
+        .map(|x| x.identity_pk)
+        .collect();
+    inner
+        .store
+        .run(move |db| store::common_set(db, &peer_pk, &others))
+        .await?;
+    Ok(stats)
 }
 
 /// Disca o contato, troca `Hello` e sincroniza a conversa.
 async fn sync_with(inner: &Inner, c: &Contact) -> Result<SyncStats> {
-    let conn = tokio::time::timeout(
+    let pk = c.identity_pk;
+    let dial = tokio::time::timeout(
         Duration::from_secs(inner.cfg.dial_timeout_secs),
         dial_sync(inner, c),
     )
     .await
-    .map_err(|_| Error::Timeout("conectar ao contato"))??;
+    .map_err(|_| Error::Timeout("conectar ao contato"))
+    .and_then(|r| r);
+    let conn = match dial {
+        Ok(conn) => conn,
+        Err(e) => {
+            let _ = inner
+                .store
+                .run(move |db| store::reliability_record(db, &pk, false, None, unix_now_ms()))
+                .await;
+            return Err(e);
+        }
+    };
     let result = async {
-        let (_hello, mut send, mut recv) = hello_exchange(inner, &conn, c).await?;
-        let stats = run_session(inner, c, &mut recv, &mut send).await?;
+        let (hello, mut send, recv) = hello_exchange(inner, &conn, c).await?;
+        let role = hello.role;
+        inner
+            .store
+            .run(move |db| store::reliability_record(db, &pk, true, Some(role), unix_now_ms()))
+            .await?;
+        let stats = run_session(inner, c, recv, &mut send).await?;
         let _ = send.finish();
         Ok(stats)
     }
@@ -717,8 +1001,20 @@ async fn sync_loop(inner: Arc<Inner>) {
             let inner = inner.clone();
             tokio::spawn(async move {
                 let _guard = guard;
-                if let Err(e) = sync_with(&inner, &c).await {
-                    tracing::debug!(peer = %c.fingerprint(), "sincronização automática falhou: {e}");
+                match sync_with(&inner, &c).await {
+                    // Contato online: aproveita para entregar o que carrego e trocar recibos.
+                    Ok(_) => {
+                        if let Err(e) = carry_flow::carry_with(&inner, &c, vec![]).await {
+                            tracing::debug!(peer = %c.fingerprint(), "carry falhou: {e}");
+                        }
+                    }
+                    // Contato offline: se há mensagens pendentes, procura carriers em comum.
+                    Err(e) => {
+                        tracing::debug!(peer = %c.fingerprint(), "sincronização automática falhou: {e}");
+                        if let Err(e) = carry_flow::offer_to_carriers(&inner, &c).await {
+                            tracing::debug!(peer = %c.fingerprint(), "ofertas de carry falharam: {e}");
+                        }
+                    }
                 }
             });
         }
@@ -762,6 +1058,7 @@ async fn accept_loop(inner: Arc<Inner>) {
             let result = match conn.alpn() {
                 a if a == ALPN_CONTACT => handle_contact(&inner, &conn).await,
                 a if a == ALPN_SYNC => handle_sync(&inner, &conn).await,
+                a if a == ALPN_CARRY => carry_flow::handle_carry(&inner, &conn).await,
                 _ => Ok(()),
             };
             if let Err(e) = result {
@@ -792,7 +1089,7 @@ async fn handle_sync(inner: &Inner, conn: &Connection) -> Result<()> {
     proto::write_frame(&mut send, &inner.our_hello(), max).await?;
     // Segue com a sessão de sincronização no mesmo stream. Se o par só queria o `Hello`
     // (`diag`), ele fecha a conexão e a leitura falha, o que é normal.
-    let stats = run_session(inner, &contact, &mut recv, &mut send).await?;
+    let stats = run_session(inner, &contact, recv, &mut send).await?;
     let _ = send.finish();
     tracing::debug!(?stats, peer = %contact.fingerprint(), "sessão de sincronização recebida");
     // Dá tempo de o iniciador fechar a conexão depois de ler o nosso `Bye`.
@@ -829,7 +1126,13 @@ async fn handle_contact(inner: &Inner, conn: &Connection) -> Result<()> {
         .book()
         .by_identity(&ticket.identity_pk)
         .is_some_and(|c| c.node_addr.id == remote);
-    let accept = if known {
+    let allowed = inner.cfg.auto_accept_contacts
+        || inner
+            .cfg
+            .allowed_fingerprints
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case(&fingerprint(&ticket.identity_pk)));
+    let accept = if known || allowed {
         true
     } else {
         ask_user(inner, conn, &ticket).await

@@ -3,6 +3,7 @@
 //! Módulos internos (`sync`, `carry`, `roles`, `blobs`, `store`, `crypto`) são preenchidos a
 //! partir das próximas fases.
 
+mod carry;
 mod config;
 mod contacts;
 mod crypto;
@@ -16,10 +17,12 @@ mod node;
 mod order;
 mod proto;
 mod role;
+mod roles;
 mod store;
 mod sync;
 
-pub use config::{default_data_dir, Config, RelaySetting};
+pub use carry::CarryStats;
+pub use config::{default_data_dir, Budget, Config, RelaySetting, RoleMode};
 pub use contacts::{Contact, ContactStatus};
 pub use crypto::{dm_conversation_id, Envelope, EnvelopeKind, Recipient, SealedKey};
 pub use error::{Error, Result};
@@ -31,11 +34,18 @@ pub use keystore::OsKeyStore;
 pub use keystore::{open_keystore, FileKeyStore, KeyStore};
 pub use net::{NatKind, NatReport, PathKind, PathMetrics};
 pub use node::{
-    list_contacts, AddOutcome, DiagReport, Enxame, Message, PeerDiag, PendingRequest, SentMessage,
-    DEFAULT_DIRECT_WAIT,
+    list_contacts, AddOutcome, ContributionSummary, DiagReport, Enxame, Message, PeerDiag,
+    PendingRequest, SentMessage, StartOptions, DEFAULT_DIRECT_WAIT,
 };
 pub use proto::{ALPN_CONTACT, ALPN_SYNC};
 pub use role::Role;
+#[cfg(target_os = "linux")]
+pub use roles::LinuxSignals;
+pub use roles::{
+    effective_kbps_cap, target_role, CarryLimits, FallbackSignals, LinkKind, PlatformReading,
+    PlatformSignals, RateLimiter, RoleEngine, RolePolicy, Signals, StaticSignals,
+    ThroughputEstimator,
+};
 pub use sync::SyncStats;
 
 /// Versão do protocolo de wire. Negociada no `Hello`.

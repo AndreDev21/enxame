@@ -2,3 +2,5 @@
 *.db
 *.db-*
 .env
+/deploy/certs/*
+!/deploy/certs/.gitkeep
