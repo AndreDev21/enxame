@@ -1,6 +1,9 @@
 //! Fluxo de rede do carry: discar, aceitar, escolher carriers e oferecer mensagens pendentes.
 
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 
@@ -135,15 +138,16 @@ pub(super) async fn offer_to_carriers(inner: &Inner, recipient: &Contact) -> Res
         .run(move |db| store::envelopes_by_ids(db, &ids2))
         .await?;
     let ids3 = ids.clone();
-    let (common, mut holding) = inner
+    let (common, mut offered) = inner
         .store
         .run(move |db| {
             let common = store::common_get(db, &rpk)?;
-            let mut holding: HashSet<[u8; 32]> = HashSet::new();
+            // Para cada mensagem, quem já aceitou carregá-la.
+            let mut offered: HashMap<[u8; 32], HashSet<[u8; 32]>> = HashMap::new();
             for id in &ids3 {
-                holding.extend(store::offered_carriers(db, id)?);
+                offered.insert(*id, store::offered_carriers(db, id)?.into_iter().collect());
             }
-            Ok((common, holding))
+            Ok((common, offered))
         })
         .await?;
     let mine = inner.mutual_contacts();
@@ -170,12 +174,16 @@ pub(super) async fn offer_to_carriers(inner: &Inner, recipient: &Contact) -> Res
     candidates.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.total_cmp(&a.2)));
 
     for (cand, _, _) in candidates.into_iter().take(MAX_CANDIDATES) {
-        if holding.len() >= CARRIERS_PER_MESSAGE {
-            break;
-        }
         let cpk = cand.identity_pk;
-        let already = holding.contains(&cpk);
-        let todo: Vec<Envelope> = if already { vec![] } else { envs.clone() };
+        // Só o que este carrier ainda não guarda e que ainda não tem carriers suficientes.
+        let todo: Vec<Envelope> = envs
+            .iter()
+            .filter(|e| {
+                let have = offered.get(&e.id);
+                have.is_none_or(|h| h.len() < CARRIERS_PER_MESSAGE && !h.contains(&cpk))
+            })
+            .cloned()
+            .collect();
         if todo.is_empty() {
             continue;
         }
@@ -185,8 +193,10 @@ pub(super) async fn offer_to_carriers(inner: &Inner, recipient: &Contact) -> Res
                     .store
                     .run(move |db| store::reliability_record(db, &cpk, true, None, unix_now_ms()))
                     .await;
-                if stats.accepted.iter().any(|(_, ids)| !ids.is_empty()) {
-                    holding.insert(cpk);
+                for (_, ids) in &stats.accepted {
+                    for id in ids {
+                        offered.entry(*id).or_default().insert(cpk);
+                    }
                 }
             }
             Err(e) => {
@@ -198,5 +208,7 @@ pub(super) async fn offer_to_carriers(inner: &Inner, recipient: &Contact) -> Res
             }
         }
     }
+    // Carriers distintos que guardam alguma das mensagens pendentes.
+    let holding: HashSet<[u8; 32]> = offered.values().flatten().copied().collect();
     Ok(holding.len())
 }

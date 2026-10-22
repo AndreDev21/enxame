@@ -181,6 +181,34 @@ async fn same_scenario_with_a_headless_super_peer_node_as_carrier() {
     .await;
 }
 
+/// Regressão: o carrier que já guardava a primeira mensagem era tratado como se guardasse
+/// todas, e as seguintes nunca eram oferecidas a ele.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_message_to_an_offline_contact_is_carried_not_just_the_first() {
+    let (a, mut b, c) = (
+        node("alice").await,
+        node("bob").await,
+        node_with("carol", |c| c.role = "peer".into()).await,
+    );
+    trio(&a, &b, &c).await;
+    b.node.shutdown().await;
+    let mut last = 0;
+    for text in ["um", "dois", "três"] {
+        last = a.node.send_text("bob", text).await.unwrap().carriers;
+    }
+    assert_eq!(last, 1);
+    assert_eq!(c.node.contribution_summary().await.unwrap().carry_items, 3);
+    // B volta e recebe as três, na ordem, só por C (A fica fora do caminho).
+    a.node.shutdown().await;
+    b.restart().await;
+    let got = tokio::time::timeout(Duration::from_secs(20), b.node.carry_now("carol"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(got.received, 3, "{got:?}");
+    assert_eq!(b.texts("alice").await, vec!["um", "dois", "três"]);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_leaf_does_not_carry_so_the_message_waits_for_the_direct_sync() {
     let (a, mut b, c) = (

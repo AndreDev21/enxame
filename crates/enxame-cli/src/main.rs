@@ -339,6 +339,11 @@ async fn chat(cfg: Config, contacts: &[String]) -> Result<()> {
                     chat_command(&node, line).await;
                     continue;
                 }
+                // `@nome` sem texto é um engano: não manda "@nome" como mensagem.
+                if line.starts_with('@') && !line.contains(' ') {
+                    println!("(uso: @nome texto)");
+                    continue;
+                }
                 // `@nome texto` escolhe o destinatário; senão, o primeiro contato.
                 let (target, text) = match line.strip_prefix('@').and_then(|r| r.split_once(' ')) {
                     Some((name, text)) => (name.to_owned(), text.trim().to_owned()),
