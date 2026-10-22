@@ -101,6 +101,7 @@ cargo run -p enxame-cli -- --help
 
 ## Estado
 
+- **Leia [`docs/STATUS.md`](docs/STATUS.md) primeiro**: onde paramos, o que falta e a ordem de amanhã.
 - Fases 0 a 4 implementadas; a 3 foi validada em campo com três máquinas (`docs/reports/fase3-carry.md`);
   aguarda revisão. Fases 0–2 revisadas. A Fase 1 foi validada em campo (Linux ↔ Linux,
   redes diferentes); Windows e 4G seguem sem teste. A Fase 2 foi validada em campo com duas
