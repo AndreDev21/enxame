@@ -87,6 +87,9 @@ class CallController extends ChangeNotifier {
   bool sharing = false;
   bool remoteHasVideo = false;
 
+  /// O outro lado está escolhendo/abrindo o que vai transmitir (antes da oferta).
+  bool peerPreparing = false;
+
   String? _id;
   bool _caller = false;
   RTCPeerConnection? _pc;
@@ -209,29 +212,79 @@ class CallController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Registra por onde a mídia está indo (host/srflx/prflx/relay). Espera um instante: logo após
+  /// "connected" as estatísticas do par ainda podem não ter o par escolhido.
   Future<void> _logSelectedPair() async {
-    try {
-      final stats = await stats_();
-      final byId = {for (final r in stats) r.id: r};
-      for (final r in stats) {
-        if (r.type == 'candidate-pair' &&
-            r.values['nominated'] == true &&
-            r.values['state'] == 'succeeded') {
-          String cand(Object? id) {
-            final c = byId[id];
-            return c == null
-                ? '?'
-                : '${c.values['candidateType']} ${c.values['address'] ?? c.values['ip']}:${c.values['port']} (${c.values['protocol']})';
-          }
+    for (var attempt = 0; attempt < 4; attempt++) {
+      await Future<void>.delayed(
+        Duration(milliseconds: attempt == 0 ? 800 : 1500),
+      );
+      try {
+        final stats = await stats_();
+        final byId = {for (final r in stats) r.id: r};
+        String cand(Object? id) {
+          final c = byId[id];
+          return c == null
+              ? '?'
+              : '${c.values['candidateType']} ${c.values['address'] ?? c.values['ip']}:${c.values['port']} (${c.values['protocol']})';
+        }
 
+        final pairs = stats.where((r) => r.type == 'candidate-pair').toList();
+        // O par em uso: nomeado/selecionado, ou o que de fato enviou bytes.
+        final used = pairs.where(
+          (r) =>
+              r.values['state'] == 'succeeded' &&
+              (r.values['nominated'] == true ||
+                  r.values['selected'] == true ||
+                  ((r.values['bytesSent'] as num?) ?? 0) > 0),
+        );
+        if (used.isNotEmpty) {
+          for (final r in used) {
+            _log(
+              'par escolhido: local=${cand(r.values['localCandidateId'])} '
+              'remoto=${cand(r.values['remoteCandidateId'])} '
+              'rtt=${r.values['currentRoundTripTime']}',
+            );
+          }
+          return;
+        }
+        if (attempt == 3) {
           _log(
-            'par escolhido: local=${cand(r.values['localCandidateId'])} remoto=${cand(r.values['remoteCandidateId'])}',
+            'sem par escolhido nas estatísticas; pares: ${pairs.map((p) => '${p.values['state']}').toList()}',
           );
         }
+      } catch (e) {
+        _log('não consegui ler o par escolhido: $e');
       }
-    } catch (e) {
-      _log('não consegui ler o par escolhido: $e');
     }
+  }
+
+  Timer? _statsTimer;
+
+  /// A cada poucos segundos anota resolução, quadros por segundo e taxa do vídeo (diagnóstico).
+  void _startStatsLog() {
+    _statsTimer?.cancel();
+    _statsTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
+      try {
+        for (final r in await stats_()) {
+          final kindV = r.values['kind'] ?? r.values['mediaType'];
+          if (kindV != 'video') continue;
+          if (r.type == 'outbound-rtp') {
+            _log(
+              'vídeo enviado: ${r.values['frameWidth']}x${r.values['frameHeight']} '
+              '${r.values['framesPerSecond']} fps, ${r.values['bytesSent']} B, '
+              'limitação: ${r.values['qualityLimitationReason']}',
+            );
+          } else if (r.type == 'inbound-rtp') {
+            _log(
+              'vídeo recebido: ${r.values['frameWidth']}x${r.values['frameHeight']} '
+              '${r.values['framesPerSecond']} fps, ${r.values['bytesReceived']} B, '
+              'decodificados ${r.values['framesDecoded']}',
+            );
+          }
+        }
+      } catch (_) {}
+    });
   }
 
   Future<List<StatsReport>> stats_() async => await _pc?.getStats() ?? const [];
@@ -278,6 +331,9 @@ class CallController extends ChangeNotifier {
         }
       case 'reject':
         await _end('recusada pelo outro lado', notify: false);
+      case 'preparing':
+        peerPreparing = true;
+        notifyListeners();
       case 'busy':
         await _end('ocupado', notify: false);
       case 'hangup':
@@ -310,6 +366,7 @@ class CallController extends ChangeNotifier {
     camOn = true;
     sharing = false;
     remoteHasVideo = false;
+    peerPreparing = false;
     _remoteSet = false;
     _pendingIce.clear();
   }
@@ -353,6 +410,7 @@ class CallController extends ChangeNotifier {
         phase = CallPhase.connected;
         notifyListeners();
         unawaited(_logSelectedPair());
+        _startStatsLog();
       } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
         _end('a conexão falhou', notify: true);
       }
@@ -360,7 +418,8 @@ class CallController extends ChangeNotifier {
     return pc;
   }
 
-  /// O que cada lado envia: áudio e/ou câmera, ou a tela (no `screen`, só o chamador).
+  /// O que cada lado envia: áudio e/ou câmera; na chamada de tela o chamador também transmite a
+  /// tela e os dois falam (microfone, se houver: sem ele a chamada segue só com a tela).
   Future<void> _attachLocalMedia(RTCPeerConnection pc) async {
     MediaStream? local;
     switch (kind!) {
@@ -369,22 +428,14 @@ class CallController extends ChangeNotifier {
       case CallKind.video:
         local = await media.camera();
       case CallKind.screen:
-        if (_caller) {
-          final screen = await media.screen();
-          if (screen == null) throw StateError('transmissão de tela cancelada');
-          _screen = screen;
-          sharing = true;
-          localRenderer.srcObject = screen;
-          _videoSender = await pc.addTrack(
-            screen.getVideoTracks().first,
-            screen,
-          );
-          return;
+        try {
+          local = await media.microphone();
+        } catch (e) {
+          _log('sem microfone na chamada de tela: $e');
         }
     }
     if (local != null) {
       _mic = local;
-      localRenderer.srcObject = local;
       for (final t in local.getTracks()) {
         final s = await pc.addTrack(t, local);
         if (t.kind == 'video') {
@@ -393,17 +444,30 @@ class CallController extends ChangeNotifier {
         }
       }
     }
-    // Quem só recebe vídeo (a tela do outro lado) precisa de um transceptor para ele.
-    if (kind == CallKind.screen && !_caller) {
-      await pc.addTransceiver(
-        kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
-        init: RTCRtpTransceiverInit(direction: TransceiverDirection.RecvOnly),
-      );
+    if (kind == CallKind.screen) {
+      if (_caller) {
+        final screen = await media.screen();
+        if (screen == null) throw StateError('transmissão de tela cancelada');
+        _screen = screen;
+        sharing = true;
+        localRenderer.srcObject = screen;
+        _videoSender = await pc.addTrack(screen.getVideoTracks().first, screen);
+      } else {
+        // Quem só recebe a tela do outro precisa de um transceptor de vídeo para ela.
+        await pc.addTransceiver(
+          kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+          init: RTCRtpTransceiverInit(direction: TransceiverDirection.RecvOnly),
+        );
+      }
+      return;
     }
+    if (local != null) localRenderer.srcObject = local;
   }
 
   Future<void> _startAsCaller() async {
     _log('chamador: abrindo a mídia');
+    // O outro lado vê "escolhendo o que transmitir" em vez de ficar sem informação.
+    unawaited(_send({'t': 'preparing'}).catchError((_) {}));
     try {
       final pc = _pc = await _newPeerConnection();
       await _attachLocalMedia(pc);
@@ -431,6 +495,7 @@ class CallController extends ChangeNotifier {
 
   Future<void> _onOffer(Map<String, dynamic> m) async {
     try {
+      peerPreparing = false;
       var pc = _pc;
       if (pc == null) {
         // Primeira oferta: quem atendeu monta a conexão e a mídia agora.
@@ -522,6 +587,7 @@ class CallController extends ChangeNotifier {
       unawaited(_send({'t': 'hangup'}).catchError((_) {}));
     }
     _timer?.cancel();
+    _statsTimer?.cancel();
     final pc = _pc;
     _pc = null;
     for (final s in [_mic, _screen]) {
@@ -536,6 +602,7 @@ class CallController extends ChangeNotifier {
     remoteRenderer.srcObject = null;
     localRenderer.srcObject = null;
     phase = CallPhase.idle;
+    peerPreparing = false;
     endedReason = reason;
     sharing = false;
     remoteHasVideo = false;

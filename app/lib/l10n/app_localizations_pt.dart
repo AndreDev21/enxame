@@ -479,4 +479,17 @@ class LPt extends L {
 
   @override
   String get pickScreenNone => 'Nenhuma tela encontrada.';
+
+  @override
+  String callPeerChoosing(String name) {
+    return '$name está escolhendo o que transmitir…';
+  }
+
+  @override
+  String callYouShareTo(String name) {
+    return 'Você está transmitindo sua tela para $name';
+  }
+
+  @override
+  String get callEndedPlain => 'Chamada encerrada';
 }

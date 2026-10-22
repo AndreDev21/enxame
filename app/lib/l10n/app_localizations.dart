@@ -930,6 +930,24 @@ abstract class L {
   /// In pt, this message translates to:
   /// **'Nenhuma tela encontrada.'**
   String get pickScreenNone;
+
+  /// No description provided for @callPeerChoosing.
+  ///
+  /// In pt, this message translates to:
+  /// **'{name} está escolhendo o que transmitir…'**
+  String callPeerChoosing(String name);
+
+  /// No description provided for @callYouShareTo.
+  ///
+  /// In pt, this message translates to:
+  /// **'Você está transmitindo sua tela para {name}'**
+  String callYouShareTo(String name);
+
+  /// No description provided for @callEndedPlain.
+  ///
+  /// In pt, this message translates to:
+  /// **'Chamada encerrada'**
+  String get callEndedPlain;
 }
 
 class _LDelegate extends LocalizationsDelegate<L> {

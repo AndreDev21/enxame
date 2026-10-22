@@ -271,5 +271,22 @@
         "type": "String"
       }
     }
+  },
+  "callPeerChoosing": "{name} is choosing what to share…",
+  "callYouShareTo": "You are sharing your screen with {name}",
+  "callEndedPlain": "Call ended",
+  "@callPeerChoosing": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@callYouShareTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
   }
 }

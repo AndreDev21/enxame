@@ -271,5 +271,22 @@
   "pickScreenTitle": "O que você quer transmitir?",
   "pickScreenScreens": "Telas",
   "pickScreenWindows": "Janelas",
-  "pickScreenNone": "Nenhuma tela encontrada."
+  "pickScreenNone": "Nenhuma tela encontrada.",
+  "callPeerChoosing": "{name} está escolhendo o que transmitir…",
+  "@callPeerChoosing": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "callYouShareTo": "Você está transmitindo sua tela para {name}",
+  "@callYouShareTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "callEndedPlain": "Chamada encerrada"
 }

@@ -477,4 +477,17 @@ class LEn extends L {
 
   @override
   String get pickScreenNone => 'No screen found.';
+
+  @override
+  String callPeerChoosing(String name) {
+    return '$name is choosing what to share…';
+  }
+
+  @override
+  String callYouShareTo(String name) {
+    return 'You are sharing your screen with $name';
+  }
+
+  @override
+  String get callEndedPlain => 'Call ended';
 }
