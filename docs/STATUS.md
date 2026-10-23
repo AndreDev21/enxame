@@ -1,6 +1,6 @@
 # Status do projeto — onde paramos
 
-Atualizado em 2026-10-23 (fim da sessão). **Leia este arquivo primeiro ao retomar.**
+Atualizado em 2026-10-23 (fim da sessão; ver "Amanhã" no fim do bloco 6.6). **Leia este arquivo primeiro ao retomar.**
 Especificação: [`enxame-mvp.md`](../enxame-mvp.md) · convenções: [`CLAUDE.md`](../CLAUDE.md).
 
 ## Resumo em uma frase
@@ -71,6 +71,13 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
      instalador num PC limpo (mensagens, arquivo, voz, vídeo, tela, bandeja, Sair, bateria); "o nó não
      parou a tempo" ao sair; TURN para NAT simétrico/4G; assinatura dos artefatos; 1ª release oficial
      por tag. ADR do instalador: 0014.
+     **Amanhã (ordem):** (1) validar o instalador da `rc4` num PC limpo (mensagens, arquivo, voz, vídeo,
+     tela, bandeja, Sair, bateria); (2) teste de perda de rede no meio da chamada e recusar/cancelar no
+     Windows; (3) decidir o ADR do TURN (quem hospeda, credenciais) para a Fase 7; (4) pendências:
+     "o nó não parou a tempo" ao sair, job `app` do `ci.yml` (preciso da saída do passo "Testes do
+     app"), Wayland, assinatura. Opcional: baixar o prazo da 1ª tentativa de chamada de 10 s para 7 s.
+     Ferramentas de campo: `docs/roteiros/windows-escuta.md` (Windows em escuta pelo chat do Enxame) e
+     `scripts/field/natprobe.py|.ps1` (sonda de NAT; resultados em `reports/fase6-windows.md`).
      Ambiente de desenvolvimento no Windows: `docs/roteiros/windows-dev.md` (`flutter run -d windows`,
      logs em `%APPDATA%\enxame\calls.log`; falha nativa: `Get-WinEvent ... Id=1000`). O workflow
      `windows-dev.yml` (zip de teste) demorou o mesmo que a release: cache não ajudou.
