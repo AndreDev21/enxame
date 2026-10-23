@@ -85,13 +85,21 @@ Achados e correções que o campo trouxe:
 5. O outro lado vê "fulano está escolhendo o que transmitir…" e quem transmite vê "Você está
    transmitindo para fulano".
 
-**Fluidez (alvo de 30 fps): não atingido em telas grandes no X11.** Numa tela 2560x1440 o capturador
+**Tela 1080p nativa (PC `andre`, X11, LAN com o bob):** enviado em 1920x1080 a **24–26 fps**
+(máximo 26, média 24), alvo de 6,5–7 Mbit/s, sem limitação de banda nem de CPU, texto legível. É a
+melhor rodada, mas **também não chega a 30**: o capturador do X11 satura em ~25 quadros por segundo
+mesmo em 1080p.
+
+**Fluidez (alvo de 30 fps): não atingido no X11.** Numa tela 2560x1440 o capturador
 do X11 entrega ~21 quadros por segundo de entrada (o Xorg usa ~48% de CPU só para copiar a tela) e o
 resto do caminho acompanha: enviado em 1920x1080 a ~21 fps estáveis, ~7 Mbit/s, sem limitação de
-banda nem de CPU do encoder. Na máquina de desenvolvimento (1920x1080) o mesmo caminho chega a
-25–27 fps. Para chegar a 30 em telas grandes é preciso outra forma de captura (PipeWire/portal no
+banda nem de CPU do encoder. Na tela de 1080p chega a 24–26 fps (e a 25–27 no teste local). Para chegar a 30 em telas grandes é preciso outra forma de captura (PipeWire/portal no
 Wayland, ou capturar uma janela em vez da tela inteira); fica como trabalho futuro. Em redes lentas
 os quadros caem antes da nitidez (decisão deliberada para texto).
 
 **Ainda sem teste real:** câmera (nenhuma das duas máquinas tem), Wayland, Windows, NAT simétrico e
 4G (sem TURN).
+
+**Achados menores para depois:** o registro "par escolhido" sai duplicado quando há mais de um par com
+bytes enviados (visto com o bob, que tem uma VPN `tun0`) e o candidato `prflx` aparece sem endereço
+(só a porta); convém registrar o IP remoto e distinguir o par realmente selecionado.
