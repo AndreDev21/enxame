@@ -935,17 +935,38 @@ class CallController extends ChangeNotifier {
     await _startAsCaller();
   }
 
-  /// Fecha só a conexão WebRTC, mantendo as faixas locais (microfone, câmera, tela) para a
-  /// próxima tentativa: a tela não pede o seletor de novo.
+  /// Fecha a conexão WebRTC da tentativa anterior e libera as faixas locais: a próxima tentativa
+  /// captura de novo, como uma chamada nova. Reaproveitar o microfone entre conexões derrubou o
+  /// app no Windows (`libwebrtc.dll` 0xc0000005, ~1 s depois de conectar). Na chamada de tela quem
+  /// transmite escolhe a tela outra vez.
   Future<void> _dropConnection() async {
     final pc = _pc;
     _pc = null;
     _statsTimer?.cancel();
     _videoSender = null;
+    _cameraTrack = null;
     _reused.clear();
     _pendingIce.clear();
     _remoteSet = false;
     _makingOffer = false;
+    for (final stream in [_mic, _screen]) {
+      for (final t in stream?.getTracks() ?? const <MediaStreamTrack>[]) {
+        try {
+          await t.stop();
+        } catch (e) {
+          _log('parar a faixa: $e');
+        }
+      }
+      try {
+        await stream?.dispose();
+      } catch (e) {
+        _log('liberar o fluxo: $e');
+      }
+    }
+    _mic = _screen = null;
+    sharing = false;
+    localRenderer.srcObject = null;
+    screenRenderer.srcObject = null;
     try {
       await pc?.dispose();
     } catch (e) {
