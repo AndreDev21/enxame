@@ -84,14 +84,16 @@ def cmd_punch(a):
     nxt = 0.0
     while time.time() - t0 < a.secs:
         if time.time() >= nxt:
-            s.sendto(b"enxame-probe %d" % sent, peer)
+            # Pacote no formato STUN (Binding Request): é o que o ICE manda, e há redes que tratam
+            # UDP de formato desconhecido de outro jeito.
+            s.sendto(struct.pack("!HHI", 0x0001, 0, MAGIC) + os.urandom(12), peer)
             sent += 1
             nxt = time.time() + 0.2
         try:
             data, src = s.recvfrom(2048)
         except socket.timeout:
             continue
-        if data.startswith(b"enxame-probe"):
+        if len(data) >= 20 and struct.unpack("!I", data[4:8])[0] == MAGIC:
             got += 1
             srcs.add(src[1] == peer[1] and "porta esperada" or "porta DIFERENTE")
             if first is None:

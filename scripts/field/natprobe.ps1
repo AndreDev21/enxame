@@ -68,13 +68,15 @@ if ($Cmd -eq 'map') {
   $t0 = [DateTime]::UtcNow; $got = 0; $sent = 0; $first = $null; $diff = $false; $next = [DateTime]::UtcNow
   while (([DateTime]::UtcNow - $t0).TotalSeconds -lt $Secs) {
     if ([DateTime]::UtcNow -ge $next) {
-      $b = [Text.Encoding]::ASCII.GetBytes("enxame-probe $sent")
+      $rnd = New-Object byte[] 12
+      [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($rnd)
+      $b = [byte[]](0x00, 0x01, 0x00, 0x00, 0x21, 0x12, 0xA4, 0x42) + $rnd
       [void]$udp.Send($b, $b.Length, $peerEp); $sent++; $next = [DateTime]::UtcNow.AddMilliseconds(200)
     }
     try {
       $from = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
       $d = $udp.Receive([ref]$from)
-      if ([Text.Encoding]::ASCII.GetString($d).StartsWith('enxame-probe')) {
+      if ($d.Length -ge 20 -and $d[4] -eq 0x21 -and $d[5] -eq 0x12 -and $d[6] -eq 0xA4 -and $d[7] -eq 0x42) {
         $got++
         if ($from.Port -ne $peerEp.Port) { $diff = $true }
         if ($null -eq $first) { $first = [math]::Round(([DateTime]::UtcNow - $t0).TotalSeconds, 2) }
