@@ -18,8 +18,10 @@ use crate::{
 
 /// Maior carga de um sinal (SDP com vídeo cabe com folga).
 pub const MAX_SIGNAL_BYTES: usize = 64 * 1024;
-/// Um sinal mais velho (ou mais novo) que isto é descartado: evita repetição tardia.
-pub const MAX_SKEW: Duration = Duration::from_secs(60);
+/// Um sinal mais velho (ou mais novo) que isto é descartado: evita repetição tardia. Folga de 5
+/// min para relógios de PC desacertados (o carimbo é o relógio de parede de quem envia, não o
+/// HLC, que pode andar adiantado).
+pub const MAX_SKEW: Duration = Duration::from_secs(300);
 /// Sinais aceitos por contato numa janela de 10 s (uma chamada usa algumas dezenas).
 const RATE_LIMIT: usize = 200;
 const RATE_WINDOW: Duration = Duration::from_secs(10);
@@ -101,7 +103,11 @@ pub fn open_signal(
     }
     let skew = now_ms.abs_diff(env.hlc.ms);
     if skew > MAX_SKEW.as_millis() as u64 {
-        return Err(Error::Protocol("sinal de chamada fora do prazo".into()));
+        return Err(Error::Protocol(format!(
+            "relógio fora de hora: {} s de diferença entre os computadores (limite {} s)",
+            skew / 1000,
+            MAX_SKEW.as_secs()
+        )));
     }
     let plain = env.open(identity)?;
     if plain.is_empty() || plain.len() > MAX_SIGNAL_BYTES {
@@ -156,9 +162,9 @@ mod tests {
         let now = unix_now_ms();
         let mut g = SignalGuard::default();
         // Velho e do futuro.
-        let old = make_signal(&a, &cb, Hlc::new(now - 120_000, 0), b"x").unwrap();
+        let old = make_signal(&a, &cb, Hlc::new(now - 400_000, 0), b"x").unwrap();
         assert!(open_signal(&b, &ca, &old, now, &mut g).is_err());
-        let future = make_signal(&a, &cb, Hlc::new(now + 120_000, 0), b"x").unwrap();
+        let future = make_signal(&a, &cb, Hlc::new(now + 400_000, 0), b"x").unwrap();
         assert!(open_signal(&b, &ca, &future, now, &mut g).is_err());
         // Autor diferente do contato de onde veio.
         let from_c = make_signal(&c, &cb, Hlc::new(now, 0), b"x").unwrap();

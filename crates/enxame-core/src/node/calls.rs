@@ -7,6 +7,7 @@ use iroh::endpoint::Connection;
 use super::{Enxame, Inner, CLOSE_CODE_NOT_CONTACT};
 use crate::{
     calls::{make_signal, open_signal},
+    hlc::Hlc,
     identity::unix_now_ms,
     proto::{read_frame, write_frame, CallMsg, ALPN_CALL},
     Error, Event, Result,
@@ -25,8 +26,9 @@ impl Enxame {
                 "o contato ainda não aceitou (não é mútuo)".into(),
             ));
         }
-        let hlc = inner.clock().tick(unix_now_ms());
-        let env = make_signal(&inner.identity, &c, hlc, payload)?;
+        // Carimbo de parede, não o HLC: o HLC pode andar adiantado (mensagens de pares com o relógio
+        // à frente) e o sinal seria recusado por "fora do prazo".
+        let env = make_signal(&inner.identity, &c, Hlc::new(unix_now_ms(), 0), payload)?;
         let dial = inner.endpoint.connect(c.node_addr.clone(), ALPN_CALL);
         let conn = tokio::time::timeout(Duration::from_secs(inner.cfg.dial_timeout_secs), dial)
             .await
@@ -52,6 +54,9 @@ impl Enxame {
                 .map_err(|_| Error::Timeout("confirmação do sinal"))??
             {
                 CallMsg::Ack => Ok(()),
+                CallMsg::Refused { reason } => Err(Error::Protocol(format!(
+                    "o contato recusou o sinal ({reason})"
+                ))),
                 _ => Err(Error::Protocol("o contato recusou o sinal".into())),
             }
         }
@@ -91,7 +96,6 @@ pub(super) async fn handle_call(inner: &Inner, conn: &Connection) -> Result<()> 
             };
             match opened {
                 Ok(payload) => {
-                    inner.clock().observe(envelope.hlc, unix_now_ms());
                     inner.emit(Event::CallSignal {
                         from_name: contact.display_name.clone(),
                         from_fingerprint: contact.fingerprint(),
@@ -101,7 +105,9 @@ pub(super) async fn handle_call(inner: &Inner, conn: &Connection) -> Result<()> 
                 }
                 Err(e) => {
                     tracing::debug!(peer = %contact.fingerprint(), "sinal de chamada recusado: {e}");
-                    CallMsg::Reject
+                    CallMsg::Refused {
+                        reason: e.to_string(),
+                    }
                 }
             }
         }

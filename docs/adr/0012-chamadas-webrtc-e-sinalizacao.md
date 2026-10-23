@@ -21,7 +21,7 @@ endpoint, visto em campo), então a mídia não deve passar por eles.
    inacessível, a chamada falha na hora.
 3. **Validação de um sinal (`calls::open_signal`):** envelope válido (id e assinatura), `kind =
    CallSignal`, autor = o contato de quem veio, conversa 1:1 certa, um destinatário e sem pais,
-   **fresco** (HLC a até ±60 s), carga de 1 a 64 KiB, **sem repetição** (memória dos ids por ~2 min) e
+   **fresco** (carimbo a até ±5 min; ver abaixo), carga de 1 a 64 KiB, **sem repetição** (memória dos ids por ~10 min) e
    no máximo **200 sinais por contato a cada 10 s**. Só contatos mútuos conectam (como no carry).
    Co-membros de grupo que não são contatos não podem ligar.
 4. **Protocolo da chamada (JSON dentro do sinal, opaco para o núcleo):** `invite{id,kind}` →
@@ -103,3 +103,14 @@ os quadros caem antes da nitidez (decisão deliberada para texto).
 **Achados menores para depois:** o registro "par escolhido" sai duplicado quando há mais de um par com
 bytes enviados (visto com o bob, que tem uma VPN `tun0`) e o candidato `prflx` aparece sem endereço
 (só a porta); convém registrar o IP remoto e distinguir o par realmente selecionado.
+
+### Correção após o teste no Windows (2026-10-23)
+
+Com o instalador do Windows, a chamada falhou com "violação de protocolo: o contato recusou o sinal"
+enquanto as mensagens funcionavam. A validação de frescor do sinal comparava o **HLC** do envelope
+com o relógio de parede, mas o HLC é lógico e pode andar à frente (mensagens de pares com o relógio
+adiantado são aceitas até 24 h e o elevam). Correções: o sinal usa carimbo de **relógio de parede**
+(`Hlc::new(agora, 0)`) e o receptor não o incorpora ao HLC; a janela passou de ±60 s para ±5 min
+(relógios de PC desacertados); e a recusa agora devolve o **motivo** (`CallMsg::Refused`), que o app
+mostra ("relógio fora de hora: N s de diferença…"). A causa exata no caso do amigo não foi observada;
+a mensagem nova a revela se não for esta.

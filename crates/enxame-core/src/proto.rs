@@ -134,9 +134,15 @@ pub enum CarryMsg {
 /// confirmação de que o par o aceitou (ou a recusa).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallMsg {
-    Signal { envelope: Box<Envelope> },
+    Signal {
+        envelope: Box<Envelope>,
+    },
     Ack,
     Reject,
+    /// Recusa com o motivo (texto para quem envia mostrar ao usuário).
+    Refused {
+        reason: String,
+    },
 }
 
 /// Primeira mensagem de `enxame/sync/1`, enviada nos dois sentidos (spec 7.3).
@@ -293,7 +299,13 @@ mod tests {
 
     #[tokio::test]
     async fn call_msgs_roundtrip() {
-        for msg in [CallMsg::Ack, CallMsg::Reject] {
+        for msg in [
+            CallMsg::Ack,
+            CallMsg::Reject,
+            CallMsg::Refused {
+                reason: "relógio fora de hora".into(),
+            },
+        ] {
             let mut buf = Vec::new();
             write_frame(&mut buf, &msg, 4096).await.unwrap();
             let back: CallMsg = read_frame(&mut buf.as_slice(), 4096).await.unwrap();

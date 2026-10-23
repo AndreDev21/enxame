@@ -218,9 +218,9 @@ destinatários.
 ### `enxame/call/1`
 Uma conexão QUIC por sinal, apenas de contatos mútuos: o iniciador abre um stream bidirecional e envia
 `CallMsg::Signal { envelope }`; o receptor valida e responde `CallMsg::Ack` (ou `CallMsg::Reject`).
-`CallMsg = Signal { envelope: Box<Envelope> } | Ack | Reject` (a ordem é parte do wire).
+`CallMsg = Signal { envelope: Box<Envelope> } | Ack | Reject | Refused { reason: String }` (a ordem é parte do wire; `Refused` leva o motivo para o remetente mostrar).
 
 O envelope é `kind = CallSignal`, com `conversation_id` 1:1, sem `parents`, **um** destinatário (o
 contato) e conteúdo de 1 a 64 KiB (JSON do app: `invite`, `accept`, `reject`, `busy`, `offer`,
-`answer`, `ice`, `hangup`). Validação: id/assinatura, autor = o par, HLC a ±60 s, id inédito
-(memória de ~2 min) e ≤ 200 sinais por contato a cada 10 s. Não é gravado no banco nem sincronizado.
+`answer`, `ice`, `hangup`). Validação: id/assinatura, autor = o par, carimbo a ±5 min do relógio de parede (o remetente usa `Hlc::new(agora, 0)`, nunca o HLC lógico; o receptor não o incorpora ao seu), id inédito
+(memória de ~10 min) e ≤ 200 sinais por contato a cada 10 s. Não é gravado no banco nem sincronizado.
