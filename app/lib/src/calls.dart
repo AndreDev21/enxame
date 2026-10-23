@@ -106,6 +106,7 @@ class CallController extends ChangeNotifier {
   MediaStream? _screen;
   MediaStreamTrack? _cameraTrack;
   RTCRtpSender? _videoSender;
+  final Set<String> _reused = {};
   final List<RTCIceCandidate> _pendingIce = [];
   bool _remoteSet = false;
   bool _makingOffer = false;
@@ -500,7 +501,13 @@ class CallController extends ChangeNotifier {
 
   /// O que cada lado envia: áudio e/ou câmera; na chamada de tela o chamador também transmite a
   /// tela e os dois falam (microfone, se houver: sem ele a chamada segue só com a tela).
-  Future<void> _attachLocalMedia(RTCPeerConnection pc) async {
+  /// Com `answering`, a oferta do outro lado já foi aplicada: as faixas locais entram nos
+  /// transceptores que ela criou (um `addTransceiver` antes da oferta, no Windows, ficava num
+  /// transceptor novo e a resposta saía sem enviar o microfone até a renegociação seguinte).
+  Future<void> _attachLocalMedia(
+    RTCPeerConnection pc, {
+    bool answering = false,
+  }) async {
     MediaStream? local;
     _log('capturando a mídia local (${kind!.name})');
     switch (kind!) {
@@ -524,7 +531,24 @@ class CallController extends ChangeNotifier {
         _log('adicionando a faixa ${t.kind} à conexão');
         // `addTrack` derruba o app no Windows (queda nativa, vista no campo); o transceptor com a
         // faixa faz o mesmo e é o caminho que a tela já usa.
-        final tr = await pc.addTransceiver(
+        RTCRtpTransceiver? tr;
+        if (answering) {
+          for (final c in await pc.getTransceivers()) {
+            if (c.sender.track == null &&
+                c.receiver.track?.kind == t.kind &&
+                !_reused.contains(c.mid)) {
+              tr = c;
+              break;
+            }
+          }
+          if (tr != null) {
+            _reused.add(tr.mid);
+            await tr.sender.replaceTrack(t);
+            await tr.setDirection(TransceiverDirection.SendRecv);
+            _log('faixa ${t.kind} no transceptor ${tr.mid} da oferta');
+          }
+        }
+        tr ??= await pc.addTransceiver(
           track: t,
           kind: t.kind == 'video'
               ? RTCRtpMediaType.RTCRtpMediaTypeVideo
@@ -550,7 +574,7 @@ class CallController extends ChangeNotifier {
         sharing = true;
         screenRenderer.srcObject = screen;
         _videoSender = await _addScreenTrack(pc, screen);
-      } else {
+      } else if (!answering) {
         // Quem só recebe a tela do outro precisa de um transceptor de vídeo para ela.
         await pc.addTransceiver(
           kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
@@ -645,10 +669,11 @@ class CallController extends ChangeNotifier {
     try {
       peerPreparing = false;
       var pc = _pc;
+      var fresh = false;
       if (pc == null) {
         // Primeira oferta: quem atendeu monta a conexão e a mídia agora.
         pc = _pc = await _newPeerConnection();
-        await _attachLocalMedia(pc);
+        fresh = true;
       }
       // `signalingState` é nulo numa conexão nova (nenhum evento ainda): conta como estável.
       final st = pc.signalingState;
@@ -668,6 +693,7 @@ class CallController extends ChangeNotifier {
         'atendente: oferta aplicada, ${_pendingIce.length} candidatos pendentes',
       );
       await _flushIce(pc);
+      if (fresh) await _attachLocalMedia(pc, answering: true);
       final created = await pc.createAnswer();
       final answer = RTCSessionDescription(
         boostVideoBitrate(created.sdp ?? ''),
@@ -753,6 +779,7 @@ class CallController extends ChangeNotifier {
     }
     _mic = _screen = null;
     _cameraTrack = _videoSender = null;
+    _reused.clear();
     _log('fechando a conexão');
     // O plugin só solta o observador nativo (e seu canal de eventos) em `dispose()`, e só enquanto
     // a conexão ainda está no mapa: o `close()` a tira de lá. Sem isto cada chamada deixa um
