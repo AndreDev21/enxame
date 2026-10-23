@@ -112,12 +112,11 @@ async fn run(arg: Option<PathBuf>) -> Result<()> {
     let mut events = node.subscribe();
     let mut health_tick = tokio::time::interval(HEALTH_EVERY);
     let mut ticket_tick = tokio::time::interval(TICKET_EVERY);
-    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .context("SIGTERM")?;
+    let mut term = terminate_signal()?;
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
-            _ = term.recv() => break,
+            _ = term.wait() => break,
             _ = ticket_tick.tick() => match node.invite_ticket().await {
                 Ok(t) => {
                     write_private(&dir.join(TICKET_FILE), &format!("{t}\n"))?;
@@ -157,4 +156,41 @@ async fn run(arg: Option<PathBuf>) -> Result<()> {
     tracing::info!("encerrando");
     node.shutdown().await;
     Ok(())
+}
+
+/// Pedido de encerramento do sistema, além do Ctrl-C: `SIGTERM` (Docker, systemd) no Unix e o
+/// fechamento do console no Windows.
+#[cfg(unix)]
+struct Terminate(tokio::signal::unix::Signal);
+
+#[cfg(unix)]
+impl Terminate {
+    async fn wait(&mut self) {
+        self.0.recv().await;
+    }
+}
+
+#[cfg(unix)]
+fn terminate_signal() -> Result<Terminate> {
+    Ok(Terminate(
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .context("SIGTERM")?,
+    ))
+}
+
+#[cfg(windows)]
+struct Terminate(tokio::signal::windows::CtrlClose);
+
+#[cfg(windows)]
+impl Terminate {
+    async fn wait(&mut self) {
+        self.0.recv().await;
+    }
+}
+
+#[cfg(windows)]
+fn terminate_signal() -> Result<Terminate> {
+    Ok(Terminate(
+        tokio::signal::windows::ctrl_close().context("fechamento do console")?,
+    ))
 }
