@@ -31,9 +31,11 @@ class DesktopShell with WindowListener {
     await windowManager.ensureInitialized();
     await windowManager.setPreventClose(true);
     windowManager.addListener(this);
+    // Num AppImage o executável fica num ponto de montagem que muda a cada execução: o caminho
+    // estável é o do próprio arquivo `.AppImage` (variável `APPIMAGE` do runtime).
     LaunchAtStartup.instance.setup(
       appName: 'Enxame',
-      appPath: Platform.resolvedExecutable,
+      appPath: Platform.environment['APPIMAGE'] ?? Platform.resolvedExecutable,
     );
     await _createTray();
     state.addListener(_rebuildMenu);

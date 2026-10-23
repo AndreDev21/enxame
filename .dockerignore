@@ -1,3 +1,7 @@
 target
 .git
 *.db
+app/build
+app/.dart_tool
+app/linux/flutter/ephemeral
+dist

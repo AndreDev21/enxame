@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Enxame
+GenericName=Mensagens entre amigos
+Comment=Conversas, arquivos e chamadas direto entre amigos, sem servidor no meio
+Comment[en]=Chat, files and calls directly between friends, with no server in the middle
+Exec=AppRun %U
+Icon=enxame
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+StartupWMClass=dev.enxame.enxame_app

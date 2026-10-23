@@ -40,9 +40,27 @@ que quem baixa possa buscar de vários contatos ao mesmo tempo. Quanto mais cont
 | `enxame-core` | Toda a lógica (identidade, sync, carry, papéis, arquivos). API: struct `Enxame` + stream de `Event`. |
 | `enxame-cli` | Binário de desenvolvimento e teste. |
 | `enxame-node` | Daemon headless, papel fixo `SuperPeer` (Docker em [`deploy/`](deploy/README.md)). |
-| `enxame-ffi` | Fronteira para o Flutter (Fase 6). |
+| `enxame-ffi` | Fronteira para o Flutter (`flutter_rust_bridge`); o app está em [`app/`](app/). |
 
-## Como rodar
+## Instalar (Linux)
+
+Baixe a versão mais recente em **Releases** (GitHub), sem compilar nada:
+
+```bash
+# App com interface (mensagens, arquivos, chamadas de voz e de tela)
+chmod +x Enxame-*-x86_64.AppImage && ./Enxame-*-x86_64.AppImage
+
+# Ou só a linha de comando e o nó 24/7
+tar xzf enxame-cli-*-x86_64-linux.tar.gz
+```
+
+Confira o download com `sha256sum -c Enxame-*.AppImage.sha256`. O AppImage precisa de GTK 3,
+libdbus e PulseAudio do sistema (já presentes em qualquer desktop atual). Na primeira vez o app pede só
+o seu nome; relay, DNS e pastas são automáticos. Windows chega no bloco 6.6 da Fase 6.
+
+Para gerar os artefatos você mesmo (precisa só do Docker): `scripts/package/build-linux-release.sh`.
+
+## Como rodar (a partir do código)
 
 Requer Rust 1.91+ (no Linux, `libdbus-1-dev` e `pkg-config` para o keystore do SO).
 
