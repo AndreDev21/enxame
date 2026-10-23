@@ -56,7 +56,7 @@ tar xzf enxame-cli-*-x86_64-linux.tar.gz
 
 Confira o download com `sha256sum -c Enxame-*.AppImage.sha256`. O AppImage precisa de GTK 3,
 libdbus e PulseAudio do sistema (já presentes em qualquer desktop atual). Na primeira vez o app pede só
-o seu nome; relay, DNS e pastas são automáticos. Windows chega no bloco 6.6 da Fase 6.
+o seu nome; relay, DNS e pastas são automáticos. No Windows há um instalador (`Enxame-Setup-<versão>-x64.exe`, por usuário, sem administrador; ADR 0014), em validação de campo.
 
 Para gerar os artefatos você mesmo (precisa só do Docker): `scripts/package/build-linux-release.sh`.
 

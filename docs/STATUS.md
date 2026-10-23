@@ -23,7 +23,7 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
 | 6 | App Flutter desktop + setup simples + chamadas | em andamento (6.1–6.5 feitos; 6.6 Windows em campo) | parcial (chamadas Linux↔Linux e Windows↔Linux; ver 6.6) | — |
 | 7 | Call 1:1 (stretch) | não iniciada | — | — |
 
-Último commit: `b53fb84` (roteiro de ambiente de desenvolvimento no Windows).
+Último commit de código: `a38c939` (atendente liga a mídia ao transceptor da oferta).
 
 ## Próximos passos, nesta ordem
 
@@ -65,16 +65,12 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
        `addTransceiver`; captura só de áudio não liga prévia de vídeo;
      - "Sair" não encerrava o processo: `quit()` com prazo de 5 s e `exit(0)` (`f702a97`); **resolvido
        no Linux, ainda a confirmar no Windows** (bandeja → Sair).
-     **Em aberto:**
-     - app Windows ainda fica em segundo plano após "Sair" (testado antes de `f702a97`; rever);
-     - **transmissão de tela no meio da chamada é inconsistente** (às vezes o outro lado vê a webcam ou
-       nada; religar corrige). Hipóteses: `replaceTrack` falhando em silêncio no plugin do Windows, ou
-       corrida na renegociação em chamada de voz. Logs em `3bd45a8` (`tela no meio da chamada…`,
-       `depois de iniciar a tela: enviando WxH`, `faixa remota recebida`). Alternativa: transceptor de
-       vídeo sempre presente desde o início, ou segundo transceptor para a tela;
-     - gerar a `rc4` com todas as correções e validar o instalador em campo (mensagens, arquivo, voz,
-       vídeo, tela, bandeja, Sair, bateria); depois ADR do instalador, relatório de campo do Windows e
-       atualizar README/CLAUDE.md.
+     Resolvido em 2026-10-23 com o Windows em escuta (`reports/fase6-windows.md`): menu da bandeja,
+     queda ao Sair, microfone do atendente, queda na 2ª/3ª chamada (dispose do observador), prévia da
+     tela. **Em aberto:** gerar a `rc4` (Actions → release → Run workflow, `v0.0.1-rc4`) e validar o
+     instalador num PC limpo (mensagens, arquivo, voz, vídeo, tela, bandeja, Sair, bateria); "o nó não
+     parou a tempo" ao sair; TURN para NAT simétrico/4G; assinatura dos artefatos; 1ª release oficial
+     por tag. ADR do instalador: 0014.
      Ambiente de desenvolvimento no Windows: `docs/roteiros/windows-dev.md` (`flutter run -d windows`,
      logs em `%APPDATA%\enxame\calls.log`; falha nativa: `Get-WinEvent ... Id=1000`). O workflow
      `windows-dev.yml` (zip de teste) demorou o mesmo que a release: cache não ajudou.

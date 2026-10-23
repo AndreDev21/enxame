@@ -127,6 +127,8 @@ cargo run -p enxame-cli -- --help
 - **Não use automação de teclado/mouse (xdotool) na tela do usuário** para testar a interface: use
   `integration_test`.
 
+- Windows (6.6): instalador Inno Setup pela CI (ADR 0014); ambiente de desenvolvimento em `docs/roteiros/windows-dev.md` e orquestração com o Windows em escuta em `docs/roteiros/windows-escuta.md`. Quedas nativas: Visualizador de Eventos (Application, Id 1000). Relatório: `docs/reports/fase6-windows.md`.
+
 ## Estado
 
 - **Leia [`docs/STATUS.md`](docs/STATUS.md) primeiro**: onde paramos, o que falta e a ordem de amanhã.
