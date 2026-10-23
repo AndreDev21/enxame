@@ -37,10 +37,14 @@ jobs:
       - name: Runtime do Visual C++ junto do app
         run: |
           $bundle = "app\build\windows\x64\runner\Release"
-          $crt = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio" -Recurse -Directory -Filter "Microsoft.VC14*.CRT" -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match "\\x64\\" } | Select-Object -First 1
+          # O WebRTC é compilado com um Visual C++ recente: com um MSVCP140.dll antigo (14.29, de um VS 2019 do
+          # runner) o app cai com 0xc0000005 ao enviar áudio. Pega o runtime de maior versão.
+          $crt = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio", "${env:ProgramFiles(x86)}\Microsoft Visual Studio" -Recurse -Directory -Filter "Microsoft.VC14*.CRT" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\x64\\" -and (Test-Path "$($_.FullName)\msvcp140.dll") } |
+            Sort-Object { [version](Get-Item "$($_.FullName)\msvcp140.dll").VersionInfo.ProductVersion } -Descending | Select-Object -First 1
           if (-not $crt) { throw "runtime do Visual C++ não encontrado" }
           Copy-Item "$($crt.FullName)\*.dll" $bundle -Force
+          "runtime do VC++: $($crt.FullName) = $((Get-Item "$bundle\msvcp140.dll").VersionInfo.ProductVersion)"
       - name: Zip portátil
         run: |
           New-Item -ItemType Directory dist -Force | Out-Null
