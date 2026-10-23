@@ -34,7 +34,17 @@ jobs:
           cache: true
       - run: cd app && flutter pub get
       - run: cd app && flutter analyze
-      - run: cd app && flutter test --reporter github
+      - name: Testes do app (com o final da saída como anotação se falhar)
+        run: |
+          cd app
+          set +e
+          flutter test > /tmp/flutter-test.log 2>&1
+          code=$?
+          cat /tmp/flutter-test.log
+          if [ $code -ne 0 ]; then
+            echo "::error title=flutter test falhou::$(tail -30 /tmp/flutter-test.log | cut -c1-200 | tr '\n' '|')"
+          fi
+          exit $code
 
   deny:
     runs-on: ubuntu-latest
