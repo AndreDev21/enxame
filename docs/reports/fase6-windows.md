@@ -67,3 +67,29 @@ ao André.
   Obs.: a webcam USB usada travou depois de várias aberturas seguidas nos testes (voltou ao
   desplugar e plugar); não reproduzido no uso normal do app.
 - Resultado final do teste H (vídeo nos dois sentidos, 5G): ok; a webcam do Linux chega ao Windows.
+
+## Por que só uma direção abre no 5G: matriz de NAT (2026-10-23, noite)
+
+Sonda de UDP cru entre os dois endpoints públicos (`scripts/field/natprobe.py` e `.ps1`, sem Python
+no Windows). O endereço do par é lido de um arquivo a cada rodada (o CGNAT dá outra porta a cada
+sessão) e o mapeamento é renovado enquanto se espera (o NAT móvel esquece UDP parado em ~30 s).
+
+- Mapeamento: **cone** nos dois lados (a mesma porta pública para 3 a 4 servidores STUN).
+- Quem sai primeiro, UDP cru, 14 a 24 s de pacotes:
+  - os dois ao mesmo tempo: **nada passa** (3 rodadas);
+  - o Linux 8 s antes do Windows: **nada passa**, nem depois do Windows começar;
+  - o Windows (5G) 8 s antes do Linux: **passa nos dois sentidos** (60/63 e 63/101).
+- Leitura: se um pacote de fora chega ao CGNAT antes de o notebook ter mandado algo para aquele
+  endereço, o fluxo fica bloqueado por um bom tempo. Só abre se o lado do CGNAT sai primeiro.
+- No ICE isso vira "quem atende manda as primeiras checagens": com o Linux oferecendo, o Windows
+  (atendente) sai antes e conecta; com o Windows oferecendo, o Linux (atendente) sai antes e o fluxo
+  morre. Por isso a inversão de papéis resolve e por isso não dá para acertar a ordem na primeira
+  tentativa sem saber qual lado está atrás do CGNAT (atrasar o atendente conserta um sentido e
+  quebra o outro).
+- Sem TURN, o app faz: 10 s na ordem padrão → inverte → lembra por contato (ADR 0012). A 1ª chamada
+  de cada par de redes custa ~14 s, as seguintes ~4 s. Dois aparelhos atrás de CGNAT restritivo
+  continuam sem caminho direto.
+
+Defeito encontrado e corrigido no caminho: ao inverter, **reaproveitar o microfone** do pc fechado
+derrubou o app do Windows (`libwebrtc.dll` 0xc0000005, ~1 s após conectar). A inversão agora libera
+e captura a mídia de novo (`8f6e0dd`); validado: swap, 66 s conectado, sem queda.

@@ -35,6 +35,9 @@ endpoint, visto em campo), então a mídia não deve passar por eles.
    ignorados; microfone, câmera e tela são reaproveitados). Motivo: com CGNAT de rede móvel o resultado
    depende de quem abre primeiro (campo: Linux→Windows 2/2, Windows→Linux 0/2). Se a 2ª também
    falha, o app diz que não há caminho direto e sugere outra rede; TURN fica para a Fase 7.
+   Medido (`docs/reports/fase6-windows.md`): com CGNAT de 5G só conecta se o lado do CGNAT manda o
+   primeiro pacote; por isso o papel que funciona fica lembrado por contato (`call_roles.json`). Ao
+   inverter, a mídia local é liberada e capturada de novo (reaproveitar derrubava o Windows).
    Compatível para trás: um app antigo ignora `swap` e a chamada acaba no prazo de 30 s.
 5. **Compartilhar tela durante a chamada:** com câmera, troca a imagem (`replaceTrack`); só com áudio,
    acrescenta um vídeo e renegocia (educado/impolite para colisão de ofertas).
