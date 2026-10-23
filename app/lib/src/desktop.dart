@@ -72,8 +72,17 @@ class DesktopShell with WindowListener {
   Future<void> quit() async {
     _quitting = true;
     _tray?.setVisible(false);
-    await state.stop();
-    await windowManager.destroy();
+    // O nó em Rust e o WebRTC mantêm threads próprias: fechar a janela não encerra o processo
+    // (visto no campo, Linux e Windows). Para o nó com prazo, fecha a janela e encerra de vez.
+    try {
+      await state.stop().timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('o nó não parou a tempo: $e');
+    }
+    try {
+      await windowManager.destroy().timeout(const Duration(seconds: 2));
+    } catch (_) {}
+    exit(0);
   }
 
   // ------------------------------------------------------------------ bandeja
