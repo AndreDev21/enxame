@@ -59,10 +59,22 @@ if ($Cmd -eq 'map') {
 } else {
   $mine = (Get-Mapped $stun[0])[1]
   "MEU $mine"
+  function Now-Epoch { [double]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) / 1000 }
+  # O NAT móvel esquece o mapeamento UDP parado em ~30 s: renova pelo STUN enquanto espera.
+  $script:lastKeep = Now-Epoch
+  function Keep-Alive {
+    if ((Now-Epoch) - $script:lastKeep -ge 5) {
+      $script:lastKeep = Now-Epoch
+      $udp.Client.ReceiveTimeout = 1000
+      $now = (Get-Mapped $stun[0])[1]
+      if ($now -ne $script:mine) { "AVISO: o mapeamento mudou de $script:mine para $now"; $script:mine = $now }
+    }
+  }
   if ($PeerFile) {
     # O endpoint público do par muda a cada execução: espera o arquivo com o "MEU" do outro lado.
     while (-not ((Test-Path $PeerFile) -and ((Get-Item $PeerFile).Length -gt 0))) {
       Start-Sleep -Milliseconds 200
+      Keep-Alive
       if (([double]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) / 1000) -gt $At) { throw 'o endereço do par não chegou a tempo' }
     }
     $Peer = (Get-Content $PeerFile -Raw).Trim()
@@ -72,7 +84,8 @@ if ($Cmd -eq 'map') {
   $peerEp = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Parse($ph[0]), [int]$ph[1])
   $nowEpoch = [double]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) / 1000
   "saindo em {0:N1}s" -f ($At - $nowEpoch)
-  while (([double]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) / 1000) -lt $At) { Start-Sleep -Milliseconds 10 }
+  while ((Now-Epoch) -lt ($At - 0.3)) { Start-Sleep -Milliseconds 200; Keep-Alive }
+  while ((Now-Epoch) -lt $At) { Start-Sleep -Milliseconds 5 }
   $udp.Client.ReceiveTimeout = 50
   $t0 = [DateTime]::UtcNow; $got = 0; $sent = 0; $first = $null; $diff = $false; $next = [DateTime]::UtcNow
   while (([DateTime]::UtcNow - $t0).TotalSeconds -lt $Secs) {

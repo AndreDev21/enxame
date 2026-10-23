@@ -72,21 +72,35 @@ def cmd_punch(a):
     s.bind(("0.0.0.0", a.port))
     _, mine = binding(s, STUN[0])
     print("MEU", mine, flush=True)
+    def keepalive_until(check):
+        # O NAT móvel esquece o mapeamento UDP parado em ~30 s: renova pelo STUN enquanto espera.
+        nonlocal mine
+        last = time.time()
+        while not check():
+            time.sleep(0.2)
+            if time.time() - last >= 5:
+                last = time.time()
+                _, now = binding(s, STUN[0], timeout=1.0)
+                if now != mine:
+                    print(f"AVISO: o mapeamento mudou de {mine} para {now}", flush=True)
+                    mine = now
+
     if a.peer_file:
         # O endpoint público do par muda a cada execução (o CGNAT dá outra porta a cada sessão):
         # espera o arquivo que o orquestrador escreve com o "MEU" do outro lado.
-        while not (os.path.exists(a.peer_file) and os.path.getsize(a.peer_file) > 0):
-            time.sleep(0.2)
-            if time.time() > a.at:
-                sys.exit("o endereço do par não chegou a tempo")
+        keepalive_until(lambda: os.path.exists(a.peer_file) and os.path.getsize(a.peer_file) > 0
+                        or time.time() > a.at)
+        if not os.path.exists(a.peer_file):
+            sys.exit("o endereço do par não chegou a tempo")
         a.peer = open(a.peer_file).read().strip()
     ip, port = a.peer.rsplit(":", 1)
     peer = (ip, int(port))
     print("PAR", a.peer, flush=True)
     wait = a.at - time.time()
     print(f"saindo em {wait:.1f}s", flush=True)
+    keepalive_until(lambda: time.time() >= a.at - 0.3)
     while time.time() < a.at:
-        time.sleep(0.01)
+        time.sleep(0.005)
     s.settimeout(0.05)
     t0 = time.time()
     got, first, srcs, sent = 0, None, set(), 0
