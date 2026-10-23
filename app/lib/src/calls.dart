@@ -733,19 +733,24 @@ class CallController extends ChangeNotifier {
       // Falha local: avisa o outro lado para ele não ficar pendurado.
       unawaited(_send({'t': 'hangup'}).catchError((_) {}));
     }
+    _log('encerrando a chamada: $reason');
     _timer?.cancel();
     _statsTimer?.cancel();
     final pc = _pc;
     _pc = null;
     for (final s in [_mic, _screen]) {
       for (final t in s?.getTracks() ?? const <MediaStreamTrack>[]) {
+        _log('parando a faixa ${t.kind}');
         await t.stop();
       }
+      _log('liberando o fluxo local');
       await s?.dispose();
     }
     _mic = _screen = null;
     _cameraTrack = _videoSender = null;
+    _log('fechando a conexão');
     await pc?.close();
+    _log('conexão fechada');
     remoteRenderer.srcObject = null;
     localRenderer.srcObject = null;
     phase = CallPhase.idle;
