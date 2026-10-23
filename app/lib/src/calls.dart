@@ -412,10 +412,12 @@ class CallController extends ChangeNotifier {
   }
 
   Future<RTCPeerConnection> _newPeerConnection() async {
+    _log('criando a conexão WebRTC');
     final pc = await createPeerConnection({
       'iceServers': iceServers,
       'sdpSemantics': 'unified-plan',
     });
+    _log('conexão WebRTC criada');
     pc.onIceCandidate = (c) {
       if (c.candidate == null || c.candidate!.isEmpty) return;
       unawaited(
@@ -463,6 +465,7 @@ class CallController extends ChangeNotifier {
   /// tela e os dois falam (microfone, se houver: sem ele a chamada segue só com a tela).
   Future<void> _attachLocalMedia(RTCPeerConnection pc) async {
     MediaStream? local;
+    _log('capturando a mídia local (${kind!.name})');
     switch (kind!) {
       case CallKind.audio:
         local = await media.microphone();
@@ -475,6 +478,9 @@ class CallController extends ChangeNotifier {
           _log('sem microfone na chamada de tela: $e');
         }
     }
+    _log(
+      'mídia local capturada: ${local?.getTracks().map((t) => t.kind).toList()}',
+    );
     if (local != null) {
       _mic = local;
       for (final t in local.getTracks()) {

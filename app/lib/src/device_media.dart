@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'calls.dart';
@@ -15,6 +16,9 @@ class DeviceMedia implements MediaProvider {
   Future<({bool audio, bool video})> _inputs() async {
     try {
       final devices = await navigator.mediaDevices.enumerateDevices();
+      debugPrint(
+        '[call] dispositivos: ${devices.map((d) => '${d.kind}:${d.label}').toList()}',
+      );
       return (
         audio: devices.any((d) => d.kind == 'audioinput'),
         video: devices.any((d) => d.kind == 'videoinput'),
