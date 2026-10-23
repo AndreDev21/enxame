@@ -194,7 +194,10 @@ class CallController extends ChangeNotifier {
     if (sender != null) {
       _log('tela no meio da chamada: trocando a faixa do envio de vídeo');
       await sender.replaceTrack(track);
-      _log('troca da faixa concluída');
+      _log(
+        'troca da faixa concluída: envio com a faixa ${sender.track?.id} '
+        '(tela ${track.id}, câmera ${_cameraTrack?.id})',
+      );
     } else {
       _log('tela no meio da chamada: acrescentando vídeo e renegociando');
       _videoSender = await _addScreenTrack(pc, stream);

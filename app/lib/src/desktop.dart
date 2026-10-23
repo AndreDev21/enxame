@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:dbus/dbus.dart';
@@ -82,6 +83,29 @@ class DesktopShell with WindowListener {
     try {
       await windowManager.destroy().timeout(const Duration(seconds: 2));
     } catch (_) {}
+    _terminate();
+  }
+
+  /// No Windows `exit()` roda o `DllMain` de cada DLL com as threads do tokio e do WebRTC ainda
+  /// vivas e pode travar, deixando o processo em segundo plano; `TerminateProcess` não passa por aí.
+  /// O nó já parou (ou estourou o prazo) e o banco fecha a cada transação (WAL).
+  void _terminate() {
+    if (Platform.isWindows) {
+      try {
+        final k32 = DynamicLibrary.open('kernel32.dll');
+        final current = k32.lookupFunction<IntPtr Function(), int Function()>(
+          'GetCurrentProcess',
+        );
+        final terminate = k32
+            .lookupFunction<
+              Int32 Function(IntPtr, Uint32),
+              int Function(int, int)
+            >('TerminateProcess');
+        terminate(current(), 0);
+      } catch (e) {
+        debugPrint('TerminateProcess falhou: $e');
+      }
+    }
     exit(0);
   }
 
