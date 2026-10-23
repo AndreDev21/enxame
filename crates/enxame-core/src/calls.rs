@@ -18,10 +18,13 @@ use crate::{
 
 /// Maior carga de um sinal (SDP com vídeo cabe com folga).
 pub const MAX_SIGNAL_BYTES: usize = 64 * 1024;
-/// Um sinal mais velho (ou mais novo) que isto é descartado: evita repetição tardia. Folga de 5
-/// min para relógios de PC desacertados (o carimbo é o relógio de parede de quem envia, não o
-/// HLC, que pode andar adiantado).
-pub const MAX_SKEW: Duration = Duration::from_secs(300);
+/// Um sinal com carimbo mais distante que isto do meu relógio é descartado. É o mesmo limite das
+/// mensagens (24 h): PCs com fuso ou hora errados são comuns (no campo, um Windows 3 h fora do ar) e
+/// a proteção contra repetição vem do id inédito e do canal cifrado, não do relógio. O carimbo é o
+/// relógio de parede de quem envia, não o HLC, que pode andar adiantado.
+pub const MAX_SKEW: Duration = Duration::from_secs(24 * 3600);
+/// Quantos ids de sinais recentes lembrar para recusar repetição (os mais antigos saem primeiro).
+const SEEN_CAP: usize = 10_000;
 /// Sinais aceitos por contato numa janela de 10 s (uma chamada usa algumas dezenas).
 const RATE_LIMIT: usize = 200;
 const RATE_WINDOW: Duration = Duration::from_secs(10);
@@ -29,16 +32,16 @@ const RATE_WINDOW: Duration = Duration::from_secs(10);
 /// Memória curta para recusar repetições e limitar a taxa.
 #[derive(Debug, Default)]
 pub struct SignalGuard {
-    seen: HashMap<[u8; 32], Instant>,
+    seen: std::collections::HashSet<[u8; 32]>,
+    /// Ordem de chegada dos ids de `seen`, para descartar os mais antigos ao passar de `SEEN_CAP`.
+    order: std::collections::VecDeque<[u8; 32]>,
     rate: HashMap<[u8; 32], Vec<Instant>>,
 }
 
 impl SignalGuard {
     /// Registra o sinal ou devolve o motivo da recusa.
     fn admit(&mut self, id: [u8; 32], from: [u8; 32], now: Instant) -> Result<()> {
-        self.seen
-            .retain(|_, t| now.duration_since(*t) < MAX_SKEW * 2);
-        if self.seen.contains_key(&id) {
+        if self.seen.contains(&id) {
             return Err(Error::Protocol("sinal de chamada repetido".into()));
         }
         let window = self.rate.entry(from).or_default();
@@ -47,7 +50,13 @@ impl SignalGuard {
             return Err(Error::Protocol("sinais de chamada demais".into()));
         }
         window.push(now);
-        self.seen.insert(id, now);
+        self.seen.insert(id);
+        self.order.push_back(id);
+        while self.order.len() > SEEN_CAP {
+            if let Some(old) = self.order.pop_front() {
+                self.seen.remove(&old);
+            }
+        }
         Ok(())
     }
 }
@@ -162,9 +171,9 @@ mod tests {
         let now = unix_now_ms();
         let mut g = SignalGuard::default();
         // Velho e do futuro.
-        let old = make_signal(&a, &cb, Hlc::new(now - 400_000, 0), b"x").unwrap();
+        let old = make_signal(&a, &cb, Hlc::new(now - 25 * 3600 * 1000, 0), b"x").unwrap();
         assert!(open_signal(&b, &ca, &old, now, &mut g).is_err());
-        let future = make_signal(&a, &cb, Hlc::new(now + 400_000, 0), b"x").unwrap();
+        let future = make_signal(&a, &cb, Hlc::new(now + 25 * 3600 * 1000, 0), b"x").unwrap();
         assert!(open_signal(&b, &ca, &future, now, &mut g).is_err());
         // Autor diferente do contato de onde veio.
         let from_c = make_signal(&c, &cb, Hlc::new(now, 0), b"x").unwrap();
@@ -191,6 +200,53 @@ mod tests {
         // Selado para outra pessoa: não consigo abrir.
         let for_c = make_signal(&a, &contact_of(&c), Hlc::new(now, 3), b"x").unwrap();
         assert!(open_signal(&b, &ca, &for_c, now, &mut g).is_err());
+    }
+
+    /// No campo: um Windows com o fuso errado (relógio 3 h fora) não pode ser recusado.
+    #[test]
+    fn a_pc_with_the_clock_three_hours_off_still_gets_through() {
+        let (a, b, ca, cb) = setup();
+        let now = unix_now_ms();
+        let mut g = SignalGuard::default();
+        for (i, skew) in [-3i64 * 3600 * 1000, 3 * 3600 * 1000, 23 * 3600 * 1000]
+            .into_iter()
+            .enumerate()
+        {
+            let env = make_signal(
+                &a,
+                &cb,
+                Hlc::new((now as i64 + skew) as u64, i as u32),
+                b"x",
+            )
+            .unwrap();
+            assert!(
+                open_signal(&b, &ca, &env, now, &mut g).is_ok(),
+                "skew {skew} ms"
+            );
+        }
+    }
+
+    #[test]
+    fn the_replay_memory_is_bounded() {
+        let mut g = SignalGuard::default();
+        let t = Instant::now();
+        let from = [9u8; 32];
+        for i in 0..(SEEN_CAP + 50) as u32 {
+            let mut id = [0u8; 32];
+            id[..4].copy_from_slice(&i.to_le_bytes());
+            // Contatos diferentes para não esbarrar no limite de taxa.
+            let mut f = from;
+            f[..4].copy_from_slice(&i.to_le_bytes());
+            g.admit(id, f, t).unwrap();
+        }
+        assert_eq!(g.seen.len(), SEEN_CAP);
+        // O mais antigo foi esquecido (pode repetir); o mais novo continua lembrado.
+        let mut oldest = [0u8; 32];
+        oldest[..4].copy_from_slice(&0u32.to_le_bytes());
+        assert!(g.admit(oldest, [1u8; 32], t).is_ok());
+        let mut newest = [0u8; 32];
+        newest[..4].copy_from_slice(&((SEEN_CAP + 49) as u32).to_le_bytes());
+        assert!(g.admit(newest, [2u8; 32], t).is_err());
     }
 
     #[test]

@@ -21,7 +21,7 @@ endpoint, visto em campo), então a mídia não deve passar por eles.
    inacessível, a chamada falha na hora.
 3. **Validação de um sinal (`calls::open_signal`):** envelope válido (id e assinatura), `kind =
    CallSignal`, autor = o contato de quem veio, conversa 1:1 certa, um destinatário e sem pais,
-   **fresco** (carimbo a até ±5 min; ver abaixo), carga de 1 a 64 KiB, **sem repetição** (memória dos ids por ~10 min) e
+   **fresco** (carimbo a até ±24 h, como as mensagens; ver abaixo), carga de 1 a 64 KiB, **sem repetição** (memória dos 10 000 ids mais recentes) e
    no máximo **200 sinais por contato a cada 10 s**. Só contatos mútuos conectam (como no carry).
    Co-membros de grupo que não são contatos não podem ligar.
 4. **Protocolo da chamada (JSON dentro do sinal, opaco para o núcleo):** `invite{id,kind}` →
@@ -114,3 +114,9 @@ adiantado são aceitas até 24 h e o elevam). Correções: o sinal usa carimbo d
 (relógios de PC desacertados); e a recusa agora devolve o **motivo** (`CallMsg::Refused`), que o app
 mostra ("relógio fora de hora: N s de diferença…"). A causa exata no caso do amigo não foi observada;
 a mensagem nova a revela se não for esta.
+
+**Segunda correção (a causa foi confirmada):** o PC Windows de teste tinha o **fuso/relógio ~3 h fora**
+do ar; mesmo a janela de ±5 min recusaria o sinal. As mensagens já toleravam 24 h. A janela do sinal passou
+a ser a mesma (±24 h), porque a proteção contra repetição vem do **id inédito** e do canal cifrado, não do
+relógio; a memória de ids passou a ser limitada por tamanho (10 000, os mais antigos saem) em vez de por
+tempo. Testes: relógio ±3 h e ±23 h passam; ±25 h é recusado; a memória não passa do limite.
