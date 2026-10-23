@@ -142,6 +142,8 @@ class DesktopShell with WindowListener {
       if (tray == null) return;
       tray.icon = ImageAsset.fromAsset('assets/tray_icon.png');
       tray.setTooltip('Enxame');
+      // No Windows o menu só abre se o gatilho for definido (o padrão é nenhum); no Linux o painel abre.
+      tray.setContextMenuTrigger(ContextMenuTrigger.rightClicked);
       tray.addListener((e) {
         if (e is TrayIconClickedEvent) show();
       });
