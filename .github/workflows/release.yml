@@ -1,12 +1,18 @@
 name: release
 
-# Publica os artefatos de Linux quando se cria uma tag `vX.Y.Z` (ou manualmente, sem publicar).
+# Publica os artefatos de Linux e de Windows quando se cria uma tag `vX.Y.Z`; manualmente, só gera os
+# artefatos, ou publica um pré-release se informar `prerelease_tag`.
 # O build roda em Ubuntu 22.04 dentro do contêiner de packaging/linux/Dockerfile.build para o
-# binário funcionar em distribuições dessa idade ou mais novas. Windows: bloco 6.6.
+# binário funcionar em distribuições dessa idade ou mais novas. Windows: job `windows` (instalador Inno Setup).
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      prerelease_tag:
+        description: "Publicar como pré-release com esta tag (ex.: v0.0.1-rc1). Vazio = só gera os artefatos."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -30,18 +36,83 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          cache: true
+      - name: Versão do workspace
+        id: ver
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches.Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+          if ($env:GITHUB_REF -like 'refs/tags/v*' -and "v$v" -ne $env:GITHUB_REF_NAME) { throw "tag $env:GITHUB_REF_NAME != versão $v" }
+      - name: Compila o app (o CMake compila o núcleo em Rust)
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build windows --release
+      - name: Runtime do Visual C++ junto do app (sem exigir instalação no PC do usuário)
+        run: |
+          $bundle = "app\build\windows\x64\runner\Release"
+          $crt = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio" -Recurse -Directory -Filter "Microsoft.VC14*.CRT" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\x64\\" } | Select-Object -First 1
+          if (-not $crt) { throw "runtime do Visual C++ não encontrado" }
+          Copy-Item "$($crt.FullName)\*.dll" $bundle -Force
+          Get-ChildItem $bundle -Filter *.dll | Select-Object -ExpandProperty Name
+      - name: Instalador (Inno Setup)
+        run: |
+          choco install innosetup --no-progress -y | Out-Null
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=${{ steps.ver.outputs.version }}" "/DBundleDir=$PWD\app\build\windows\x64\runner\Release" packaging\windows\enxame.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc falhou" }
+      - name: CLI e nó (zip)
+        run: |
+          cargo build --release --locked -p enxame-cli -p enxame-node
+          $name = "enxame-cli-${{ steps.ver.outputs.version }}-x86_64-windows"
+          New-Item -ItemType Directory dist\$name -Force | Out-Null
+          Copy-Item target\release\enxame-cli.exe, target\release\enxame-node.exe, LICENSE, README.md dist\$name
+          Compress-Archive -Path dist\$name -DestinationPath dist\$name.zip -Force
+          Remove-Item dist\$name -Recurse -Force
+      - name: Checksums
+        run: |
+          Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe','.zip' } | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h  $($_.Name)" | Set-Content -Encoding ascii "$($_.FullName).sha256"
+          }
+          Get-ChildItem dist | Select-Object Name, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          if-no-files-found: error
+
   publish:
-    needs: linux
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.prerelease_tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: linux
           path: dist
+          merge-multiple: true
       - name: Cria a release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes --title "Enxame $GITHUB_REF_NAME"
+          PRE_TAG: ${{ inputs.prerelease_tag }}
+        run: |
+          if [ -n "$PRE_TAG" ]; then
+            gh release create "$PRE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --generate-notes --title "Enxame $PRE_TAG (teste)"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes --title "Enxame $GITHUB_REF_NAME"
+          fi
