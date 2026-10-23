@@ -754,6 +754,14 @@ class CallController extends ChangeNotifier {
     _mic = _screen = null;
     _cameraTrack = _videoSender = null;
     _log('fechando a conexão');
+    // O plugin só solta o observador nativo (e seu canal de eventos) em `dispose()`, e só enquanto
+    // a conexão ainda está no mapa: o `close()` a tira de lá. Sem isto cada chamada deixa um
+    // observador para trás; no Windows a 2ª ou 3ª chamada do processo caía (corrupção de heap).
+    try {
+      await pc?.dispose();
+    } catch (e) {
+      _log('dispose da conexão: $e');
+    }
     await pc?.close();
     _log('conexão fechada');
     remoteRenderer.srcObject = null;
