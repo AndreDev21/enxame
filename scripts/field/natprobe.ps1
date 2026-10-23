@@ -1,4 +1,4 @@
-# Equivalente em PowerShell de natprobe.py (Windows sem Python). Só .NET.
+﻿# Equivalente em PowerShell de natprobe.py (Windows sem Python). Só .NET.
 #   .\natprobe.ps1 map
 #   .\natprobe.ps1 punch -Peer IP:PORTA -At EPOCH [-Secs 12]
 # Não imprima nem comite endereços IP públicos em relatórios.
