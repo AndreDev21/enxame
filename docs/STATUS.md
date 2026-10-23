@@ -45,9 +45,10 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
      testada com um host real** — esta máquina não tem StatusNotifierWatcher; arquivos em grupo não
      suportados);
    - **6.4 chamadas 1:1: áudio, vídeo e transmissão de tela** — **implementado** (ADR 0012): sinalização
-     E2E em `enxame/call/1`, `CallController` no app, botões no chat, seletor de tela, indicador. Testado: a
-     tela real é capturada e decodificada pelo outro lado (mesmo processo); **falta**: microfone/câmera
-     reais, Wayland, duas máquinas reais, TURN para NAT simétrico/4G;
+     E2E em `enxame/call/1`, `CallController` no app, botões no chat, seletor de tela, indicador.
+     **Validado em campo** (andrecasa ↔ bob, internet real, direto via STUN; ADR 0012): voz nos dois
+     sentidos, tela legível com voz junto, mudo. Fluidez ~21 fps (limite da captura X11 a 1440p; alvo
+     30 não atingido em telas grandes). **Falta**: câmera, Wayland, Windows, TURN para NAT simétrico/4G;
    - 6.5 empacotamento (AppImage) e binários pela CI;
    - 6.6 Windows (build, instalador, campo).
    Próxima fase depois desta: Fase 7 (chamadas em grupo e TURN, stretch). — leia o princípio abaixo.

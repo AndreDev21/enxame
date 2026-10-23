@@ -312,6 +312,7 @@ class CallController extends ChangeNotifier {
             _log(
               'vídeo enviado: ${r.values['frameWidth']}x${r.values['frameHeight']} '
               '${r.values['framesPerSecond']} fps, ${r.values['bytesSent']} B, '
+              'alvo ${r.values['targetBitrate']} bps, '
               'limitação: ${r.values['qualityLimitationReason']}',
             );
           } else if (r.type == 'inbound-rtp') {

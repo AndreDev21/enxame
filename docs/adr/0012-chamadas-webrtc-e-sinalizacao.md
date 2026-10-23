@@ -55,3 +55,43 @@ endpoint, visto em campo), então a mídia não deve passar por eles.
   e pelo núcleo até um nó de verdade.
 - **Não verificado:** microfone e câmera reais (a máquina de teste não os usou), captura no Wayland
   (a sessão é X11), áudio de sistema, chamada entre duas máquinas reais, NAT simétrico/4G.
+
+## Validação em campo (2026-10-23, internet real)
+
+App em duas máquinas de redes e cidades diferentes (andrecasa, Wi-Fi com Tailscale; bob, LAN com
+roteador), apps pareados, `flutter_webrtc` 1.6.2. Caminho de mídia: **direto via STUN
+(`srflx` ↔ `srflx`), RTT 20–50 ms, sem relay nem TURN**.
+
+| Teste | Resultado |
+|---|---|
+| Voz (andrecasa → bob) | conectou em 0,73 s após o aceite; áudio chegou ao bob (53/102 blocos com som); o André ouviu os bipes do bob (áudio nos dois sentidos); silenciar/desmutar funciona |
+| Tela, LAN (André → bob) | conectou; tela legível; o "Conectando…" de ~18 s era o André escolhendo a tela no seletor, não rede |
+| Tela, internet | conecta em 0,5 s após a oferta; voz junto com a tela; texto de terminal legível |
+
+Achados e correções que o campo trouxe:
+
+1. **A tela começava em 640x360 (texto borrado)** por o WebRTC medir a banda aos poucos e preferir
+   fluidez. Corrigido com `degradationPreference = MAINTAIN_RESOLUTION`.
+2. **O limite de bitrate padrão (~2,5 Mbit/s a 1440p) fazia o encoder descartar quadros** (21 fps de
+   entrada → 4 fps codificados) com 5 Mbit/s livres. O `setParameters` do `RTCRtpSender` é **ignorado
+   pelo plugin no Linux**; o que vale é o SDP: `boostVideoBitrate` acrescenta `b=AS` e
+   `x-google-{min,start,max}-bitrate` na seção de vídeo do SDP local de cada lado. Bitrate foi de
+   ~2 para 6,5–7 Mbit/s.
+3. **A resolução se reduz no transceptor**, não depois: `addTransceiver(sendEncodings:
+   scaleResolutionDownBy)`. A largura capturada vem do primeiro quadro do renderer local (o plugin
+   não a informa em `getSettings()`); o teto é 1920 px (teste: teto 960 → enviado 960).
+   A `constraints` `maxWidth/maxHeight` do `getDisplayMedia` são ignoradas pelo capturador do X11.
+4. Chamada de tela agora leva voz nos dois sentidos (o bob notou que o mudo não fazia nada).
+5. O outro lado vê "fulano está escolhendo o que transmitir…" e quem transmite vê "Você está
+   transmitindo para fulano".
+
+**Fluidez (alvo de 30 fps): não atingido em telas grandes no X11.** Numa tela 2560x1440 o capturador
+do X11 entrega ~21 quadros por segundo de entrada (o Xorg usa ~48% de CPU só para copiar a tela) e o
+resto do caminho acompanha: enviado em 1920x1080 a ~21 fps estáveis, ~7 Mbit/s, sem limitação de
+banda nem de CPU do encoder. Na máquina de desenvolvimento (1920x1080) o mesmo caminho chega a
+25–27 fps. Para chegar a 30 em telas grandes é preciso outra forma de captura (PipeWire/portal no
+Wayland, ou capturar uma janela em vez da tela inteira); fica como trabalho futuro. Em redes lentas
+os quadros caem antes da nitidez (decisão deliberada para texto).
+
+**Ainda sem teste real:** câmera (nenhuma das duas máquinas tem), Wayland, Windows, NAT simétrico e
+4G (sem TURN).
