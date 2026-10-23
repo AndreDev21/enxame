@@ -192,15 +192,38 @@ class CallController extends ChangeNotifier {
     track.onEnded = () => stopShare();
     final sender = _videoSender;
     if (sender != null) {
+      _log('tela no meio da chamada: trocando a faixa do envio de vídeo');
       await sender.replaceTrack(track);
+      _log('troca da faixa concluída');
     } else {
+      _log('tela no meio da chamada: acrescentando vídeo e renegociando');
       _videoSender = await _addScreenTrack(pc, stream);
       await _negotiate();
+      _log('renegociação enviada');
     }
     sharing = true;
     localRenderer.srcObject = stream;
     notifyListeners();
     unawaited(_tuneScreenSender());
+    unawaited(_logOutboundVideo('depois de iniciar a tela'));
+  }
+
+  /// Registra o tamanho dos quadros de vídeo que de fato saem (a tela é bem maior que a câmera):
+  /// mostra se a troca de faixa valeu.
+  Future<void> _logOutboundVideo(String when) async {
+    await Future<void>.delayed(const Duration(seconds: 3));
+    try {
+      for (final r in await stats_()) {
+        if (r.type == 'outbound-rtp' && r.values['kind'] == 'video') {
+          _log(
+            '$when: enviando ${r.values['frameWidth']}x${r.values['frameHeight']}, '
+            '${r.values['framesSent']} quadros, ${r.values['framesPerSecond']} fps',
+          );
+        }
+      }
+    } catch (e) {
+      _log('estatísticas de envio: $e');
+    }
   }
 
   Future<void> stopShare() async {
@@ -209,8 +232,11 @@ class CallController extends ChangeNotifier {
     final screen = _screen;
     _screen = null;
     try {
+      _log('parando a tela: devolvendo a câmera (${_cameraTrack != null})');
       await _videoSender?.replaceTrack(_cameraTrack);
-    } catch (_) {}
+    } catch (e) {
+      _log('falha ao devolver a câmera: $e');
+    }
     for (final t in screen?.getTracks() ?? const <MediaStreamTrack>[]) {
       await t.stop();
     }
@@ -430,6 +456,9 @@ class CallController extends ChangeNotifier {
       );
     };
     pc.onTrack = (e) async {
+      _log(
+        'faixa remota recebida: ${e.track.kind}, fluxos ${e.streams.map((x) => x.id).toList()}',
+      );
       final stream = e.streams.isNotEmpty ? e.streams.first : null;
       if (e.track.kind == 'video') {
         remoteHasVideo = true;
