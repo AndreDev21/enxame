@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows:
@@ -50,3 +50,9 @@ jobs:
           name: enxame-windows-dev
           path: dist/enxame-windows-dev.zip
           if-no-files-found: error
+      - name: Publica como pré-release `dev-windows` (baixa sem login)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete dev-windows --cleanup-tag --yes --repo $env:GITHUB_REPOSITORY 2>$null
+          gh release create dev-windows dist/enxame-windows-dev.zip --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --title "Build de teste do Windows" --notes "Build de teste (commit $env:GITHUB_SHA). Substituído a cada execução."
