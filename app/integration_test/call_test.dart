@@ -238,4 +238,48 @@ void main() {
       b2.dispose();
     }, timeout: const Timeout(Duration(minutes: 3)));
   }
+
+  testWidgets('teto de largura da tela é respeitado no envio', (tester) async {
+    final w1 = _Wire('A');
+    final w2 = _Wire('B');
+    w1.other = w2;
+    w2.other = w1;
+    final a2 = CallController(
+      transport: w1,
+      media: DeviceMedia(pickScreen: firstScreen),
+      iceServers: const [],
+      screenMaxWidth: 960,
+    );
+    final b2 = CallController(
+      transport: w2,
+      media: DeviceMedia(pickScreen: firstScreen),
+      iceServers: const [],
+    );
+    await a2.call('B', 'Pessoa B', CallKind.screen);
+    await until(() => b2.phase == CallPhase.incoming);
+    await b2.accept();
+    await until(
+      () => a2.phase == CallPhase.connected && b2.phase == CallPhase.connected,
+    );
+    num width = 0;
+    for (var i = 0; i < 20 && (width == 0 || width > 960); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      for (final r in await a2.stats()) {
+        if (r.type == 'outbound-rtp' && r.values['kind'] == 'video') {
+          width = (r.values['frameWidth'] as num?) ?? width;
+        }
+      }
+    }
+    // ignore: avoid_print
+    print('[teto] largura enviada com teto 960: $width');
+    expect(
+      width,
+      inInclusiveRange(320, 960),
+      reason: 'a redução pedida no transceptor vale',
+    );
+    await a2.hangup();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    a2.dispose();
+    b2.dispose();
+  }, timeout: const Timeout(Duration(minutes: 3)));
 }

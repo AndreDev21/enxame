@@ -50,6 +50,7 @@ class CallController extends ChangeNotifier {
     required this.transport,
     required this.media,
     this.iceServers = _stun,
+    this.screenMaxWidth = 1920,
   }) {
     _sub = transport.incoming.listen(_onSignal);
   }
@@ -66,6 +67,10 @@ class CallController extends ChangeNotifier {
       logFile?.writeAsStringSync('$line\n', mode: FileMode.append);
     } catch (_) {}
   }
+
+  /// Largura máxima da tela enviada: telas maiores são reduzidas (menos pixels = mais quadros na
+  /// mesma banda e no mesmo CPU). A 2560x1440 o X11 entregava só ~21 fps; texto segue legível a 1080p.
+  final int screenMaxWidth;
 
   final SignalTransport transport;
   final MediaProvider media;
@@ -189,7 +194,7 @@ class CallController extends ChangeNotifier {
     if (sender != null) {
       await sender.replaceTrack(track);
     } else {
-      _videoSender = await pc.addTrack(track, stream);
+      _videoSender = await _addScreenTrack(pc, stream);
       await _negotiate();
     }
     sharing = true;
@@ -486,7 +491,7 @@ class CallController extends ChangeNotifier {
         _screen = screen;
         sharing = true;
         localRenderer.srcObject = screen;
-        _videoSender = await pc.addTrack(screen.getVideoTracks().first, screen);
+        _videoSender = await _addScreenTrack(pc, screen);
       } else {
         // Quem só recebe a tela do outro precisa de um transceptor de vídeo para ela.
         await pc.addTransceiver(
@@ -497,6 +502,43 @@ class CallController extends ChangeNotifier {
       return;
     }
     if (local != null) localRenderer.srcObject = local;
+  }
+
+  /// Cria o envio da tela já com as codificações desejadas: o ajuste depois da negociação
+  /// (`setParameters`) é ignorado pelo plugin no Linux, o do transceptor é respeitado.
+  Future<RTCRtpSender> _addScreenTrack(
+    RTCPeerConnection pc,
+    MediaStream screen,
+  ) async {
+    final track = screen.getVideoTracks().first;
+    // O plugin não informa o tamanho da captura em `getSettings()`: mede pelo primeiro quadro
+    // desenhado no renderer local.
+    localRenderer.srcObject = screen;
+    var w = 0;
+    for (var i = 0; i < 30 && w == 0; i++) {
+      w = localRenderer.videoWidth;
+      if (w == 0) await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    final scale = (w > screenMaxWidth) ? w / screenMaxWidth : 1.0;
+    _log(
+      'tela: $w px de largura capturada, reduzindo por ${scale.toStringAsFixed(2)}',
+    );
+    final t = await pc.addTransceiver(
+      track: track,
+      kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+      init: RTCRtpTransceiverInit(
+        direction: TransceiverDirection.SendRecv,
+        streams: [screen],
+        sendEncodings: [
+          RTCRtpEncoding(
+            maxBitrate: 8000000,
+            maxFramerate: 30,
+            scaleResolutionDownBy: scale,
+          ),
+        ],
+      ),
+    );
+    return t.sender;
   }
 
   Future<void> _startAsCaller() async {
