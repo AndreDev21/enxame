@@ -969,12 +969,21 @@ class CallController extends ChangeNotifier {
     final pc = _pc;
     _pc = null;
     for (final s in [_mic, _screen]) {
+      // Uma falha ao liberar não pode deixar a chamada pendurada: o resto do encerramento segue.
       for (final t in s?.getTracks() ?? const <MediaStreamTrack>[]) {
         _log('parando a faixa ${t.kind}');
-        await t.stop();
+        try {
+          await t.stop();
+        } catch (e) {
+          _log('parar a faixa: $e');
+        }
       }
       _log('liberando o fluxo local');
-      await s?.dispose();
+      try {
+        await s?.dispose();
+      } catch (e) {
+        _log('liberar o fluxo: $e');
+      }
     }
     _mic = _screen = null;
     _cameraTrack = _videoSender = null;

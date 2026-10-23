@@ -47,6 +47,13 @@ Future<void> until(bool Function() ok, {int seconds = 30, String? why}) async {
   expect(ok(), isTrue, reason: why);
 }
 
+class _MicOnly extends DeviceMedia {
+  _MicOnly({required super.pickScreen});
+
+  @override
+  Future<MediaStream?> camera() => microphone();
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -83,6 +90,63 @@ void main() {
     await b.hangup();
     a.dispose();
     b.dispose();
+  });
+
+  testWidgets('vídeo: a câmera real de A chega a B', (tester) async {
+    // Depende de hardware (algumas webcams USB travam depois de abrir e fechar): só com ENXAME_TEST_CAMERA=1.
+    final devices = await navigator.mediaDevices.enumerateDevices();
+    if (Platform.environment['ENXAME_TEST_CAMERA'] != '1' ||
+        !devices.any((d) => d.kind == 'videoinput')) {
+      markTestSkipped('sem câmera, ou ENXAME_TEST_CAMERA não definido');
+      return;
+    }
+    // Só A usa a câmera de verdade (ela não abre duas vezes); B manda só o microfone.
+    a.dispose();
+    b.dispose();
+    a = CallController(
+      transport: wa,
+      media: DeviceMedia(pickScreen: firstScreen),
+      iceServers: const [],
+    );
+    b = CallController(
+      transport: wb,
+      media: _MicOnly(pickScreen: firstScreen),
+      iceServers: const [],
+    );
+    await a.call('B', 'Pessoa B', CallKind.video);
+    await until(() => b.phase == CallPhase.incoming);
+    await b.accept();
+    await until(
+      () => a.phase == CallPhase.connected && b.phase == CallPhase.connected,
+      why:
+          'conectou: A=${a.phase} (${a.endedReason}) B=${b.phase} (${b.endedReason})',
+    );
+    Future<num> decoded(CallController c) async {
+      num frames = 0;
+      for (final r in await c.stats()) {
+        if (r.type == 'inbound-rtp' && r.values['kind'] == 'video') {
+          frames = (r.values['framesDecoded'] as num?) ?? 0;
+        }
+      }
+      return frames;
+    }
+
+    num fb = 0;
+    for (var i = 0; i < 30 && fb < 5; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      fb = await decoded(b);
+    }
+    final out = [
+      for (final r in await a.stats())
+        if (r.type == 'outbound-rtp' && r.values['kind'] == 'video') r.values,
+    ];
+    expect(
+      fb,
+      greaterThanOrEqualTo(5),
+      reason:
+          'B decodificou a câmera de A; prévia local '
+          '${a.localRenderer.videoWidth}x${a.localRenderer.videoHeight}; A enviou $out',
+    );
   });
 
   testWidgets(

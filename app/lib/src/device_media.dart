@@ -1,4 +1,7 @@
 import 'package:flutter/foundation.dart';
+
+import 'dart:io';
+
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import 'calls.dart';
@@ -36,14 +39,35 @@ class DeviceMedia implements MediaProvider {
     return navigator.mediaDevices.getUserMedia({'audio': true, 'video': false});
   }
 
+  /// No Linux o libwebrtc embutido não decodifica MJPEG ("Failed to convert capture frame from
+  /// type 11 to I420"): câmeras USB que só dão 30 fps em MJPEG ficam sem enviar nenhum quadro.
+  /// Pedir 640x480 a ~20 fps faz o V4L2 escolher YUYV, que a maioria das câmeras oferece nessa
+  /// resolução. Nos outros sistemas fica o padrão.
+  static Map<String, dynamic> _cameraConstraints() => Platform.isLinux
+      ? {
+          'facingMode': 'user',
+          'mandatory': {
+            'minWidth': '640',
+            'maxWidth': '640',
+            'minHeight': '480',
+            'maxHeight': '480',
+            'minFrameRate': '15',
+            'maxFrameRate': '24',
+          },
+        }
+      : {'facingMode': 'user'};
+
   @override
   Future<MediaStream?> camera() async {
     final inputs = await _inputs();
     if (!inputs.video) throw StateError('este computador não tem câmera');
-    return navigator.mediaDevices.getUserMedia({
+    final stream = await navigator.mediaDevices.getUserMedia({
       'audio': inputs.audio,
-      'video': {'facingMode': 'user'},
+      'video': _cameraConstraints(),
     });
+    final v = stream.getVideoTracks().firstOrNull;
+    debugPrint('[call] câmera aberta: ${v?.getSettings()}');
+    return stream;
   }
 
   @override
