@@ -1,6 +1,6 @@
 # Status do projeto — onde paramos
 
-Atualizado em 2026-10-22 (fim da sessão). **Leia este arquivo primeiro ao retomar.**
+Atualizado em 2026-10-23 (fim da sessão). **Leia este arquivo primeiro ao retomar.**
 Especificação: [`enxame-mvp.md`](../enxame-mvp.md) · convenções: [`CLAUDE.md`](../CLAUDE.md).
 
 ## Resumo em uma frase
@@ -8,7 +8,7 @@ Especificação: [`enxame-mvp.md`](../enxame-mvp.md) · convenções: [`CLAUDE.m
 As Fases 0–4 estão **implementadas e passam em todos os testes locais**; as Fases 1, 2 e 3 também
 foram **validadas em campo** com máquinas reais. **A Fase 4 (arquivos) também foi validada em
 campo** (2026-10-22: multi-fonte, retomada e arquivo com remetente offline; veja o relatório).
-A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada em campo (2026-10-22); aguarda revisão. Próxima fase de código: **Fase 6**.
+A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada em campo (2026-10-22); aguarda revisão. **Fase 6 em andamento** (blocos 6.1–6.5 feitos; 6.6 Windows em campo, ver abaixo).
 
 ## Fases
 
@@ -20,10 +20,10 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
 | 3 | Papéis, carry com recibos, `enxame-node`, deploy, Android | ok | ok (A→carrier→B com A offline) | `reports/fase3-carry.md` |
 | 4 | Arquivos: STREAM, `iroh-blobs`, multi-fonte, retomada, prefetch | ok (inclui 1 GiB em 2 fontes) | ok (multi-fonte, retomada, remetente offline; Windows+4G) | `reports/fase4-arquivos.md` |
 | 5 | Grupos pequenos (≤ 20), retrato assinado pelo criador, co-membros como pares, carry entre membros | ok (5 nós in-process, add/remove, removido não lê, carry entre membros) | ok (4 máquinas, inclui Windows no 4G; sem não-contatos) | `reports/fase5-grupos.md` |
-| 6 | App Flutter desktop + setup simples | não iniciada | — | — |
+| 6 | App Flutter desktop + setup simples + chamadas | em andamento (6.1–6.5 feitos; 6.6 Windows em campo) | parcial (chamadas Linux↔Linux e Windows↔Linux; ver 6.6) | — |
 | 7 | Call 1:1 (stretch) | não iniciada | — | — |
 
-Último commit de código: `ea59a9d` (correções de campo da Fase 4).
+Último commit: `b53fb84` (roteiro de ambiente de desenvolvimento no Windows).
 
 ## Próximos passos, nesta ordem
 
@@ -52,7 +52,32 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
    - 6.5 empacotamento (AppImage) e binários pela CI — **feito, falta a 1ª release de verdade** (ADR 0013):
      build em Ubuntu 22.04 validado num Ubuntu limpo (AppImage abre e sobe o nó; CLI roda; glibc ≤ 2.34);
      `release.yml` escrito mas **nunca executado** (precisa criar uma tag `vX.Y.Z`); artefatos sem assinatura;
-   - 6.6 Windows (build, instalador, campo).
+   - **6.6 Windows (build, instalador, campo) — em andamento.** Instalador Inno Setup pela CI
+     (`release.yml`, pré-release por `workflow_dispatch` com `prerelease_tag`; já geradas `v0.0.1-rc1..rc3`).
+     Resolvido no campo (2026-10-23, notebook Windows com webcam ↔ PC Linux):
+     - chamada recusada por relógio/fuso diferente: janela de ±24 h, carimbo de relógio de parede e
+       motivo na recusa;
+     - **app caía ao iniciar qualquer chamada**: o `MSVCP140.dll` 14.29 copiado do runner para o
+       pacote (`0xc0000005`, WebRTC compilado com VC++ mais novo). O CI agora escolhe o runtime de
+       maior versão (`32a6665`). Confirmado trocando as DLLs por 14.44: **voz, vídeo (webcam) e tela
+       funcionam Windows↔Linux**;
+     - microfone/câmera só são pedidos se `enumerateDevices` os lista; faixas locais por
+       `addTransceiver`; captura só de áudio não liga prévia de vídeo;
+     - "Sair" não encerrava o processo: `quit()` com prazo de 5 s e `exit(0)` (`f702a97`); **resolvido
+       no Linux, ainda a confirmar no Windows** (bandeja → Sair).
+     **Em aberto:**
+     - app Windows ainda fica em segundo plano após "Sair" (testado antes de `f702a97`; rever);
+     - **transmissão de tela no meio da chamada é inconsistente** (às vezes o outro lado vê a webcam ou
+       nada; religar corrige). Hipóteses: `replaceTrack` falhando em silêncio no plugin do Windows, ou
+       corrida na renegociação em chamada de voz. Logs em `3bd45a8` (`tela no meio da chamada…`,
+       `depois de iniciar a tela: enviando WxH`, `faixa remota recebida`). Alternativa: transceptor de
+       vídeo sempre presente desde o início, ou segundo transceptor para a tela;
+     - gerar a `rc4` com todas as correções e validar o instalador em campo (mensagens, arquivo, voz,
+       vídeo, tela, bandeja, Sair, bateria); depois ADR do instalador, relatório de campo do Windows e
+       atualizar README/CLAUDE.md.
+     Ambiente de desenvolvimento no Windows: `docs/roteiros/windows-dev.md` (`flutter run -d windows`,
+     logs em `%APPDATA%\enxame\calls.log`; falha nativa: `Get-WinEvent ... Id=1000`). O workflow
+     `windows-dev.yml` (zip de teste) demorou o mesmo que a release: cache não ajudou.
    Próxima fase depois desta: Fase 7 (chamadas em grupo e TURN, stretch). — leia o princípio abaixo.
 
 ## Princípio de produto (decidido nesta sessão)
@@ -69,7 +94,9 @@ relay e passa a 1.1.1.1/8.8.8.8; `dns_servers` continua mandando).
 |---|---|
 | ~~DNS com fallback automático~~ feito (ADR 0010); falta reavaliar ao trocar de rede | Fase 6 |
 | Instaladores e binários prontos pela CI (hoje é preciso compilar com Rust) | Fase 6 / CI de releases |
-| Windows e 4G (CGNAT) testados só na Fase 4 (notebook via relay, ~1 MB/s); sinais do Windows (bateria, rede medida) e Ctrl-C sem console não implementados | Fase 6 |
+| Windows e 4G (CGNAT): sinais do Windows (bateria) e `ctrl_close` do nó implementados, falta validar em campo; 4G/CGNAT sem TURN não testado para chamadas | Fase 6 / 7 |
+| Job `app` do `ci.yml` falha só no GitHub (passa local); há anotação com o final da saída, falta ler | CI |
+| Tela a 30 fps não atingida (captura X11 ~21–26 fps; PipeWire/Wayland), log "par escolhido" duplicado, artefatos sem assinatura, 1ª release oficial `v0.0.1` por tag | Fase 6 |
 | `enxame-node` em Docker com arquivos | amanhã (item 2) |
 | Endereço de contato vem do ticket e envelhece sem relay/DNS (só o lado que reiniciou consegue discar) | resolvido na prática com relay + DNS |
 | `RoleUpdate` só alcança contatos com sessão aberta (sessões são curtas); os demais leem o papel no `Hello` | aceito (ADR 0006) |
@@ -102,6 +129,10 @@ Netsim (NAT simulado, sem root): precisa do `iroh-relay`
 `scripts/netsim/netsim.sh cone symmetric` (ver o README ali).
 
 ## Armadilhas já encontradas
+
+- **Windows: `MSVCP140.dll` antigo derruba o WebRTC** (`0xc0000005` ao enviar áudio). O pacote deve levar
+  o VC++ runtime de maior versão (>= 14.4x); nunca o 14.29 de um VS 2019 do runner.
+- **Tickets colados**: confira de quem são (decodifique localmente) antes de adicionar contatos.
 
 - **Um processo por identidade**: `chat`, `serve` e `send` no mesmo diretório de dados conflitam.
 - **Não abrir o banco com um binário mais antigo** depois de migrar (o schema só avança).
