@@ -484,7 +484,9 @@ class CallController extends ChangeNotifier {
     if (local != null) {
       _mic = local;
       for (final t in local.getTracks()) {
+        _log('adicionando a faixa ${t.kind} à conexão');
         final s = await pc.addTrack(t, local);
+        _log('faixa ${t.kind} adicionada');
         if (t.kind == 'video') {
           _videoSender = s;
           _cameraTrack = t;
@@ -508,7 +510,12 @@ class CallController extends ChangeNotifier {
       }
       return;
     }
-    if (local != null) localRenderer.srcObject = local;
+    // O renderizador é de vídeo: com só áudio não há o que mostrar (e no Windows isso é um risco).
+    if (local != null && local.getVideoTracks().isNotEmpty) {
+      _log('ligando a prévia local');
+      localRenderer.srcObject = local;
+      _log('prévia local ligada');
+    }
   }
 
   /// Cria o envio da tela já com as codificações desejadas: o ajuste depois da negociação
@@ -557,6 +564,7 @@ class CallController extends ChangeNotifier {
       await _attachLocalMedia(pc);
       _log('chamador: mídia pronta, gerando oferta');
       await _negotiate();
+      _log('chamador: oferta enviada');
     } catch (e) {
       await _send({'t': 'hangup'}).catchError((_) {});
       await _end('falha ao iniciar a mídia: $e', notify: false);
@@ -569,12 +577,15 @@ class CallController extends ChangeNotifier {
     if (pc == null) return;
     try {
       _makingOffer = true;
+      _log('criando a oferta');
       final created = await pc.createOffer();
+      _log('oferta criada');
       final offer = RTCSessionDescription(
         boostVideoBitrate(created.sdp ?? ''),
         created.type,
       );
       await pc.setLocalDescription(offer);
+      _log('oferta aplicada localmente');
       await _send({'t': 'offer', 'sdp': offer.sdp, 'type': offer.type});
     } finally {
       _makingOffer = false;
