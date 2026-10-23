@@ -4,7 +4,7 @@
 # Não imprima nem comite endereços IP públicos em relatórios.
 param(
   [Parameter(Mandatory = $true, Position = 0)][ValidateSet('map', 'punch')][string]$Cmd,
-  [string]$Peer, [double]$At = 0, [double]$Secs = 12, [int]$Port = 0
+  [string]$Peer, [string]$PeerFile, [double]$At = 0, [double]$Secs = 12, [int]$Port = 0
 )
 $ErrorActionPreference = 'Stop'
 $stun = @(@('stun.l.google.com', 19302), @('stun1.l.google.com', 19302), @('stun.cloudflare.com', 3478), @('stun.nextcloud.com', 443))
@@ -59,6 +59,15 @@ if ($Cmd -eq 'map') {
 } else {
   $mine = (Get-Mapped $stun[0])[1]
   "MEU $mine"
+  if ($PeerFile) {
+    # O endpoint público do par muda a cada execução: espera o arquivo com o "MEU" do outro lado.
+    while (-not ((Test-Path $PeerFile) -and ((Get-Item $PeerFile).Length -gt 0))) {
+      Start-Sleep -Milliseconds 200
+      if (([double]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) / 1000) -gt $At) { throw 'o endereço do par não chegou a tempo' }
+    }
+    $Peer = (Get-Content $PeerFile -Raw).Trim()
+  }
+  "PAR $Peer"
   $ph = $Peer.Split(':')
   $peerEp = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Parse($ph[0]), [int]$ph[1])
   $nowEpoch = [double]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) / 1000

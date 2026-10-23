@@ -72,8 +72,17 @@ def cmd_punch(a):
     s.bind(("0.0.0.0", a.port))
     _, mine = binding(s, STUN[0])
     print("MEU", mine, flush=True)
+    if a.peer_file:
+        # O endpoint público do par muda a cada execução (o CGNAT dá outra porta a cada sessão):
+        # espera o arquivo que o orquestrador escreve com o "MEU" do outro lado.
+        while not (os.path.exists(a.peer_file) and os.path.getsize(a.peer_file) > 0):
+            time.sleep(0.2)
+            if time.time() > a.at:
+                sys.exit("o endereço do par não chegou a tempo")
+        a.peer = open(a.peer_file).read().strip()
     ip, port = a.peer.rsplit(":", 1)
     peer = (ip, int(port))
+    print("PAR", a.peer, flush=True)
     wait = a.at - time.time()
     print(f"saindo em {wait:.1f}s", flush=True)
     while time.time() < a.at:
@@ -104,7 +113,7 @@ def cmd_punch(a):
 p = argparse.ArgumentParser()
 sub = p.add_subparsers(dest="cmd", required=True)
 m = sub.add_parser("map"); m.add_argument("--port", type=int, default=0); m.set_defaults(f=cmd_map)
-u = sub.add_parser("punch"); u.add_argument("--peer", required=True); u.add_argument("--at", type=float, required=True)
+u = sub.add_parser("punch"); u.add_argument("--peer", default=None); u.add_argument("--peer-file", dest="peer_file", default=None); u.add_argument("--at", type=float, required=True)
 u.add_argument("--secs", type=float, default=12); u.add_argument("--port", type=int, default=0); u.set_defaults(f=cmd_punch)
 a = p.parse_args()
 a.f(a)
