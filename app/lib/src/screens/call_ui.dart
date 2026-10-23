@@ -171,18 +171,27 @@ class CallOverlay extends StatelessWidget {
                                 ),
                               ),
                       ),
+                      // Prévias no canto: a câmera (se houver) e, ao transmitir, a tela.
                       if (connected && (c.kind == CallKind.video || c.sharing))
                         Positioned(
                           right: 16,
                           bottom: 16,
-                          width: 200,
-                          height: 120,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: RTCVideoView(
-                              c.localRenderer,
-                              mirror: !c.sharing,
-                            ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (c.sharing)
+                                _Preview(child: RTCVideoView(c.screenRenderer)),
+                              if (c.sharing && c.kind == CallKind.video)
+                                const SizedBox(height: 8),
+                              if (c.kind == CallKind.video)
+                                _Preview(
+                                  child: RTCVideoView(
+                                    c.localRenderer,
+                                    mirror: true,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                     ],
@@ -264,4 +273,18 @@ class CallOverlay extends StatelessWidget {
       },
     );
   }
+}
+
+/// Quadro pequeno de prévia no canto da chamada.
+class _Preview extends StatelessWidget {
+  const _Preview({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 200,
+    height: 120,
+    child: ClipRRect(borderRadius: BorderRadius.circular(8), child: child),
+  );
 }

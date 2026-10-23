@@ -79,6 +79,10 @@ class CallController extends ChangeNotifier {
 
   final RTCVideoRenderer remoteRenderer = RTCVideoRenderer();
   final RTCVideoRenderer localRenderer = RTCVideoRenderer();
+
+  /// Prévia da tela que este lado transmite (separada da câmera: trocar o `srcObject` da câmera
+  /// não atualizava a imagem no Windows).
+  final RTCVideoRenderer screenRenderer = RTCVideoRenderer();
   bool _renderersReady = false;
 
   CallPhase phase = CallPhase.idle;
@@ -112,6 +116,7 @@ class CallController extends ChangeNotifier {
     if (_renderersReady) return;
     await remoteRenderer.initialize();
     await localRenderer.initialize();
+    await screenRenderer.initialize();
     _renderersReady = true;
   }
 
@@ -205,7 +210,7 @@ class CallController extends ChangeNotifier {
       _log('renegociação enviada');
     }
     sharing = true;
-    localRenderer.srcObject = stream;
+    screenRenderer.srcObject = stream;
     notifyListeners();
     unawaited(_tuneScreenSender());
     unawaited(_logOutboundVideo('depois de iniciar a tela'));
@@ -243,7 +248,7 @@ class CallController extends ChangeNotifier {
     for (final t in screen?.getTracks() ?? const <MediaStreamTrack>[]) {
       await t.stop();
     }
-    localRenderer.srcObject = _mic;
+    screenRenderer.srcObject = null;
     notifyListeners();
   }
 
@@ -543,7 +548,7 @@ class CallController extends ChangeNotifier {
         if (screen == null) throw StateError('transmissão de tela cancelada');
         _screen = screen;
         sharing = true;
-        localRenderer.srcObject = screen;
+        screenRenderer.srcObject = screen;
         _videoSender = await _addScreenTrack(pc, screen);
       } else {
         // Quem só recebe a tela do outro precisa de um transceptor de vídeo para ela.
@@ -571,10 +576,10 @@ class CallController extends ChangeNotifier {
     final track = screen.getVideoTracks().first;
     // O plugin não informa o tamanho da captura em `getSettings()`: mede pelo primeiro quadro
     // desenhado no renderer local.
-    localRenderer.srcObject = screen;
+    screenRenderer.srcObject = screen;
     var w = 0;
     for (var i = 0; i < 30 && w == 0; i++) {
-      w = localRenderer.videoWidth;
+      w = screenRenderer.videoWidth;
       if (w == 0) await Future<void>.delayed(const Duration(milliseconds: 100));
     }
     final scale = (w > screenMaxWidth) ? w / screenMaxWidth : 1.0;
@@ -753,6 +758,7 @@ class CallController extends ChangeNotifier {
     _log('conexão fechada');
     remoteRenderer.srcObject = null;
     localRenderer.srcObject = null;
+    screenRenderer.srcObject = null;
     phase = CallPhase.idle;
     peerPreparing = false;
     endedReason = reason;
@@ -768,6 +774,7 @@ class CallController extends ChangeNotifier {
     _timer?.cancel();
     remoteRenderer.dispose();
     localRenderer.dispose();
+    screenRenderer.dispose();
     super.dispose();
   }
 }
