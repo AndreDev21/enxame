@@ -39,12 +39,23 @@ class DesktopShell with WindowListener {
       appPath: Platform.environment['APPIMAGE'] ?? Platform.resolvedExecutable,
     );
     await _createTray();
-    state.addListener(_rebuildMenu);
+    state.addListener(_scheduleRebuild);
   }
 
   void updateLocale(L l) {
     _l = l;
-    _rebuildMenu();
+    _scheduleRebuild();
+  }
+
+  Timer? _rebuildTimer;
+
+  /// Refaz o menu fora do callback nativo: um clique no menu muda o estado e, se o menu fosse
+  /// refeito ali mesmo, os itens nativos seriam descartados com o clique ainda em andamento.
+  void _scheduleRebuild() {
+    _rebuildTimer ??= Timer(const Duration(milliseconds: 150), () {
+      _rebuildTimer = null;
+      _rebuildMenu();
+    });
   }
 
   Future<bool> get autostartEnabled => LaunchAtStartup.instance.isEnabled();
@@ -75,6 +86,10 @@ class DesktopShell with WindowListener {
 
   Future<void> quit() async {
     _quitting = true;
+    // O menu não pode ser refeito durante a saída: `state.stop()` notifica, e refazer o menu
+    // descarta os itens nativos (visto no Windows: violação de acesso em cnativeapi.dll).
+    state.removeListener(_scheduleRebuild);
+    _rebuildTimer?.cancel();
     _tray?.setVisible(false);
     // O nó em Rust e o WebRTC mantêm threads próprias: fechar a janela não encerra o processo
     // (visto no campo, Linux e Windows). Para o nó com prazo, fecha a janela e encerra de vez.
@@ -210,7 +225,16 @@ class DesktopShell with WindowListener {
       ),
     );
     menu.addSeparator();
-    menu.addItem(item(l.trayQuit, MenuItemType.normal, onTap: quit));
+    menu.addItem(
+      item(
+        l.trayQuit,
+        MenuItemType.normal,
+        onTap: () {
+          // Fora do callback nativo do clique: destruir o ícone e o menu de dentro dele derruba o app.
+          Timer(const Duration(milliseconds: 150), quit);
+        },
+      ),
+    );
     tray.setContextMenu(menu);
   }
 }
