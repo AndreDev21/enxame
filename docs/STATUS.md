@@ -48,7 +48,7 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
      E2E em `enxame/call/1`, `CallController` no app, botões no chat, seletor de tela, indicador.
      **Validado em campo** (andrecasa ↔ bob, internet real, direto via STUN; ADR 0012): voz nos dois
      sentidos, tela legível com voz junto, mudo. Fluidez 21–23 fps a 1440p e 24–26 fps em 1080p nativa (limite do
-     capturador X11; alvo de 30 não atingido). **Falta**: câmera, Wayland, Windows, TURN para NAT simétrico/4G;
+     capturador X11; alvo de 30 não atingido). **Falta**: câmera, Wayland, Windows, TURN para NAT simétrico/CGNAT (ADR a escrever; hoje há inversão de papéis e memória por contato, `reports/fase6-windows.md`);
    - 6.5 empacotamento (AppImage) e binários pela CI — **feito, falta a 1ª release de verdade** (ADR 0013):
      build em Ubuntu 22.04 validado num Ubuntu limpo (AppImage abre e sobe o nó; CLI roda; glibc ≤ 2.34);
      `release.yml` escrito mas **nunca executado** (precisa criar uma tag `vX.Y.Z`); artefatos sem assinatura;

@@ -45,3 +45,25 @@ ao André.
   voz, vídeo, tela, bandeja, Sair e bateria; e o 4G/NAT simétrico (TURN).
 - A origem do "estava intermitente" da tela com `replaceTrack` não ficou isolada: não reproduziu em 3
   rodadas depois das correções 3 e 4; mantenha os logs de troca de faixa (`3bd45a8`).
+
+## Redes diferentes: notebook no 5G do celular ↔ PC Linux em casa (2026-10-23, à noite)
+
+- Mensagens e arquivo de ~5 MB entre os apps: ok (download lento, esperado pelo relay/5G).
+- **Voz, Linux liga:** conectou em ~4 s, par `srflx`↔`srflx` (direto via STUN), RTT 35–70 ms (2/2).
+- **Windows liga (voz e vídeo):** a primeira conexão **não abria** (0/2; ICE falhava em 21–27 s, as
+  checagens STUN do Windows expiravam e nenhuma do Linux chegava). Com o Windows como quem atende, ok.
+  O resultado depende de quem oferece primeiro com o CGNAT do 5G; só STUN, sem TURN.
+- **Correção (ADR 0012, `2e164c3` e `177edc6`):** se a primeira tentativa não conecta em 10 s, os
+  papéis se invertem (`swap`); o app lembra por contato e por direção quem deve oferecer
+  (`call_roles.json`). Medido: 1ª chamada 13,6 s (com a inversão), as 3 seguintes 3,8–4,0 s sem
+  inversão. Se as duas tentativas falham: mensagem de que não há caminho direto (rede móvel ou
+  roteador restritivo), em ~35 s.
+- **Limite conhecido:** dois aparelhos atrás de CGNAT (por exemplo, dois celulares em 5G) não abrem
+  caminho direto; só TURN resolve (Fase 7, decisão aberta 5 da spec).
+- **Webcam do Linux sem enviar nada** (vídeo 0 bytes): o libwebrtc embutido não decodifica MJPEG
+  (`Failed to convert capture frame from type 11 to I420`) e a câmera USB só dá 30 fps nesse formato.
+  No Linux a câmera passa a pedir 640x480 a 15–24 fps (YUYV) (`96a33a3`). Teste de integração com
+  câmera real: `ENXAME_TEST_CAMERA=1 flutter test integration_test/call_test.dart -d linux`.
+  Obs.: a webcam USB usada travou depois de várias aberturas seguidas nos testes (voltou ao
+  desplugar e plugar); não reproduzido no uso normal do app.
+- Resultado final do teste H (vídeo nos dois sentidos, 5G): ok; a webcam do Linux chega ao Windows.
