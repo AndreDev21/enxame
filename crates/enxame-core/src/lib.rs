@@ -49,6 +49,8 @@ pub use proto::{ALPN_CONTACT, ALPN_SYNC};
 pub use role::Role;
 #[cfg(target_os = "linux")]
 pub use roles::LinuxSignals;
+#[cfg(windows)]
+pub use roles::WindowsSignals;
 pub use roles::{
     effective_kbps_cap, target_role, CarryLimits, FallbackSignals, LinkKind, PlatformReading,
     PlatformSignals, RateLimiter, RoleEngine, RolePolicy, Signals, StaticSignals,

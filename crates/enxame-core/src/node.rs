@@ -950,7 +950,12 @@ fn default_signals() -> Arc<dyn PlatformSignals> {
     Arc::new(crate::roles::LinuxSignals::new())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+fn default_signals() -> Arc<dyn PlatformSignals> {
+    Arc::new(crate::roles::WindowsSignals::new())
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 fn default_signals() -> Arc<dyn PlatformSignals> {
     Arc::new(crate::roles::FallbackSignals::new())
 }

@@ -360,6 +360,81 @@ impl PlatformSignals for StaticSignals {
 
 #[cfg(target_os = "linux")]
 pub use linux::LinuxSignals;
+#[cfg(windows)]
+pub use windows::WindowsSignals;
+
+/// Uma bateria como o SO a informa (independente de plataforma, para poder testar).
+#[cfg(any(windows, test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BatteryInfo {
+    pub discharging: bool,
+    pub pct: u8,
+}
+
+/// `(na_tomada, bateria_%)` a partir das baterias: sem bateria = desktop na tomada; com bateria, só
+/// está "na tomada" se nenhuma estiver descarregando; o percentual é o da mais baixa.
+#[cfg(any(windows, test))]
+pub(crate) fn power_from_batteries(batteries: &[BatteryInfo]) -> (bool, Option<u8>) {
+    if batteries.is_empty() {
+        return (true, None);
+    }
+    let on_ac = !batteries.iter().any(|b| b.discharging);
+    (on_ac, batteries.iter().map(|b| b.pct).min())
+}
+
+/// Leitura de sinais no Windows: CPU e memória como no resto, bateria pela API do SO. Enlace e
+/// rede medida ficam desconhecidos (o que limita o papel a `Peer`, spec 8.2).
+#[cfg(windows)]
+mod windows {
+    use super::{
+        power_from_batteries, BatteryInfo, FallbackSignals, PlatformReading, PlatformSignals,
+    };
+
+    pub struct WindowsSignals {
+        base: FallbackSignals,
+    }
+
+    impl WindowsSignals {
+        pub fn new() -> Self {
+            Self {
+                base: FallbackSignals::new(),
+            }
+        }
+    }
+
+    impl Default for WindowsSignals {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    fn batteries() -> Vec<BatteryInfo> {
+        let Ok(manager) = starship_battery::Manager::new() else {
+            return Vec::new();
+        };
+        let Ok(list) = manager.batteries() else {
+            return Vec::new();
+        };
+        list.flatten()
+            .map(|b| BatteryInfo {
+                discharging: matches!(b.state(), starship_battery::State::Discharging),
+                pct: (b.state_of_charge().value * 100.0)
+                    .round()
+                    .clamp(0.0, 100.0) as u8,
+            })
+            .collect()
+    }
+
+    impl PlatformSignals for WindowsSignals {
+        fn read(&self) -> PlatformReading {
+            let mut r = self.base.read();
+            let (ac, pct) = power_from_batteries(&batteries());
+            r.on_ac_power = ac;
+            r.battery_pct = pct;
+            r
+        }
+    }
+}
 
 /// Leitura de sinais no Linux: `/sys/class/power_supply`, `/proc/net/route`, `/sys/class/net`
 /// e NetworkManager (via `nmcli`, se existir). Cada leitura que falha cai no valor conservador.
@@ -581,6 +656,23 @@ mod linux {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn power_from_batteries_covers_desktops_laptops_and_unplugging() {
+        use super::{power_from_batteries, BatteryInfo};
+        let b = |discharging, pct| BatteryInfo { discharging, pct };
+        // Desktop: sem bateria, na tomada.
+        assert_eq!(power_from_batteries(&[]), (true, None));
+        // Notebook carregando ou cheio: na tomada, com o percentual.
+        assert_eq!(power_from_batteries(&[b(false, 80)]), (true, Some(80)));
+        // Notebook na bateria: fora da tomada (o papel cai).
+        assert_eq!(power_from_batteries(&[b(true, 55)]), (false, Some(55)));
+        // Duas baterias: basta uma descarregando; vale o menor percentual.
+        assert_eq!(
+            power_from_batteries(&[b(false, 90), b(true, 40)]),
+            (false, Some(40))
+        );
+    }
+
     use super::*;
 
     fn base() -> Signals {

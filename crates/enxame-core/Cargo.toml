@@ -33,6 +33,9 @@ toml.workspace = true
 tracing.workspace = true
 x25519-dalek.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+starship-battery.workspace = true
+
 [features]
 default = []
 # Keystore do SO (Secret Service / Credential Manager / Keychain). Fora do default para não

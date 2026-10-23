@@ -72,6 +72,19 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
+# --- Enxame: biblioteca nativa (enxame-ffi) -----------------------------------------------
+# Compila o núcleo em Rust (cargo) e instala o enxame_ffi.dll ao lado do executável.
+set(ENXAME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+set(ENXAME_FFI_LIB "${ENXAME_ROOT}/target/release/enxame_ffi.dll")
+add_custom_target(enxame_ffi ALL
+  COMMAND cargo build --release -p enxame-ffi
+  WORKING_DIRECTORY "${ENXAME_ROOT}"
+  COMMENT "Compilando enxame-ffi (Rust)"
+  VERBATIM)
+add_dependencies(${BINARY_NAME} enxame_ffi)
+install(FILES "${ENXAME_FFI_LIB}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
