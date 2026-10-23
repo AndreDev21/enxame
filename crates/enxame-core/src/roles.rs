@@ -418,7 +418,9 @@ mod windows {
         list.flatten()
             .map(|b| BatteryInfo {
                 discharging: matches!(b.state(), starship_battery::State::Discharging),
-                pct: (b.state_of_charge().value * 100.0)
+                pct: b
+                    .state_of_charge()
+                    .get::<starship_battery::units::ratio::percent>()
                     .round()
                     .clamp(0.0, 100.0) as u8,
             })
