@@ -30,6 +30,12 @@ endpoint, visto em campo), então a mídia não deve passar por eles.
    câmera, microfone e tela só são abertos depois do `accept` e, para a tela, depois de o usuário
    escolher a fonte num seletor. Há indicador permanente de "você está transmitindo" e botão de
    parar. Uma chamada por vez (`busy`); tocar por 45 s, conectar por 30 s.
+   **Inversão de papéis (2026-10-23):** se a primeira conexão não abre (ICE falhou ou prazo), quem
+   ofereceu manda `swap` e quem atendeu passa a oferecer (`a`=1; sinais de outra tentativa são
+   ignorados; microfone, câmera e tela são reaproveitados). Motivo: com CGNAT de rede móvel o resultado
+   depende de quem abre primeiro (campo: Linux→Windows 2/2, Windows→Linux 0/2). Se a 2ª também
+   falha, o app diz que não há caminho direto e sugere outra rede; TURN fica para a Fase 7.
+   Compatível para trás: um app antigo ignora `swap` e a chamada acaba no prazo de 30 s.
 5. **Compartilhar tela durante a chamada:** com câmera, troca a imagem (`replaceTrack`); só com áudio,
    acrescenta um vídeo e renegocia (educado/impolite para colisão de ofertas).
 6. **Caminho de rede:** ICE com STUN público (Google e Cloudflare), **sem TURN** nesta fase. Entre NATs

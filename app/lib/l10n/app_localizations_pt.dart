@@ -434,6 +434,9 @@ class LPt extends L {
   String get callConnecting => 'Conectando…';
 
   @override
+  String get callRetrying => 'Tentando outro caminho…';
+
+  @override
   String get callHangup => 'Desligar';
 
   @override

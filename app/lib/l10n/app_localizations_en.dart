@@ -432,6 +432,9 @@ class LEn extends L {
   String get callConnecting => 'Connecting…';
 
   @override
+  String get callRetrying => 'Trying another route…';
+
+  @override
   String get callHangup => 'Hang up';
 
   @override

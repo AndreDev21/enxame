@@ -222,6 +222,7 @@
   "callIncomingVideo": "{name} is calling you (video)",
   "callIncomingScreen": "{name} wants to share their screen with you",
   "callConnecting": "Connecting…",
+  "callRetrying": "Trying another route…",
   "callHangup": "Hang up",
   "callCancel": "Cancel",
   "callMute": "Mute microphone",

@@ -157,7 +157,9 @@ class CallOverlay extends StatelessWidget {
                                         _ => l.callIncomingAudio(name),
                                       },
                                       CallPhase.connecting =>
-                                        c.peerPreparing
+                                        c.retrying
+                                            ? l.callRetrying
+                                            : c.peerPreparing
                                             ? l.callPeerChoosing(name)
                                             : l.callConnecting,
                                       _ =>

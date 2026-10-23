@@ -17,12 +17,20 @@ class _Wire implements SignalTransport {
   final _in = StreamController<IncomingSignal>.broadcast();
   final sent = <Map<String, dynamic>>[];
 
+  /// Descarta os candidatos ICE da primeira tentativa: a conexão não abre e os papéis se invertem.
+  bool dropFirstAttemptIce = false;
+
   @override
   Stream<IncomingSignal> get incoming => _in.stream;
 
   @override
   Future<void> send(String peer, Map<String, dynamic> msg) async {
     sent.add(msg);
+    if (dropFirstAttemptIce &&
+        msg['t'] == 'ice' &&
+        ((msg['a'] as int?) ?? 0) == 0) {
+      return;
+    }
     // Passa por JSON como no app e entrega depois de um ciclo (rede de verdade é assíncrona).
     final copy = decodeSignal(encodeSignal(msg))!;
     Future<void>.delayed(const Duration(milliseconds: 5), () {
@@ -75,6 +83,42 @@ void main() {
     a.dispose();
     b.dispose();
   });
+
+  testWidgets(
+    'conexão que não abre: os papéis se invertem e a tela de A chega a B',
+    (tester) async {
+      wa.dropFirstAttemptIce = true;
+      wb.dropFirstAttemptIce = true;
+      await a.call('B', 'Pessoa B', CallKind.screen);
+      await until(() => b.phase == CallPhase.incoming);
+      await b.accept();
+      await until(
+        () => a.phase == CallPhase.connected && b.phase == CallPhase.connected,
+        seconds: 60,
+        why:
+            'conectou com os papéis invertidos: A=${a.phase} (${a.endedReason}) '
+            'B=${b.phase} (${b.endedReason}) '
+            'A enviou ${wa.sent.map((m) => m['t']).toList()} '
+            'B enviou ${wb.sent.map((m) => m['t']).toList()}',
+      );
+      expect(wa.sent.map((m) => m['t']), contains('swap'));
+      expect(wb.sent.map((m) => m['t']), contains('offer'));
+      num frames = 0;
+      for (var i = 0; i < 40 && frames < 5; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        for (final r in await b.stats()) {
+          if (r.type == 'inbound-rtp' && r.values['kind'] == 'video') {
+            frames = (r.values['framesDecoded'] as num?) ?? 0;
+          }
+        }
+      }
+      expect(
+        frames,
+        greaterThanOrEqualTo(5),
+        reason: 'B decodificou a tela de A',
+      );
+    },
+  );
 
   testWidgets(
     'transmissão de tela: A chama, B atende, B decodifica a tela de A',

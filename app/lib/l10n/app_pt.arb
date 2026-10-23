@@ -250,6 +250,7 @@
     }
   },
   "callConnecting": "Conectando…",
+  "callRetrying": "Tentando outro caminho…",
   "callHangup": "Desligar",
   "callCancel": "Cancelar",
   "callMute": "Silenciar microfone",

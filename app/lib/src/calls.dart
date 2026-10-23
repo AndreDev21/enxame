@@ -101,6 +101,18 @@ class CallController extends ChangeNotifier {
 
   String? _id;
   bool _caller = false;
+
+  /// Quem manda as ofertas. Começa igual a `_caller`; se a primeira conexão não abre, os papéis
+  /// se invertem (ver `_swapRoles`). `_caller` segue sendo quem ligou (na chamada de tela, quem
+  /// transmite).
+  bool _offerer = false;
+
+  /// 0 = primeira tentativa de conexão; 1 = papéis invertidos. Todo sinal leva este número e os
+  /// de outra tentativa são ignorados (candidatos atrasados da conexão anterior).
+  int _attempt = 0;
+
+  /// A primeira conexão falhou e a chamada tenta de novo com os papéis invertidos.
+  bool retrying = false;
   RTCPeerConnection? _pc;
   MediaStream? _mic; // áudio (e câmera, se houver)
   MediaStream? _screen;
@@ -152,7 +164,7 @@ class CallController extends ChangeNotifier {
     notifyListeners();
     _timer = Timer(
       _connectTimeout,
-      () => _end('a conexão não abriu', notify: true),
+      () => _onConnectFailed('a conexão não abriu'),
     );
     await _send({'t': 'accept'});
   }
@@ -392,6 +404,10 @@ class CallController extends ChangeNotifier {
     }
     // Todo o resto só vale para a chamada atual, do contato certo.
     if (id != _id || s.peer != peer || phase == CallPhase.idle) return;
+    if (t != 'swap' && ((m['a'] as int?) ?? 0) != _attempt) {
+      _log('ignorado: $t da tentativa ${m['a']} (agora $_attempt)');
+      return;
+    }
     switch (t) {
       case 'accept':
         if (_caller && phase == CallPhase.outgoing) {
@@ -399,7 +415,7 @@ class CallController extends ChangeNotifier {
           phase = CallPhase.connecting;
           _timer = Timer(
             _connectTimeout,
-            () => _end('a conexão não abriu', notify: true),
+            () => _onConnectFailed('a conexão não abriu'),
           );
           notifyListeners();
           await _startAsCaller();
@@ -413,6 +429,8 @@ class CallController extends ChangeNotifier {
         await _end('ocupado', notify: false);
       case 'hangup':
         await _end('encerrada pelo outro lado', notify: false);
+      case 'swap':
+        await _onSwap(m);
       case 'offer':
         await _onOffer(m);
       case 'answer':
@@ -435,6 +453,9 @@ class CallController extends ChangeNotifier {
     peerName = name;
     kind = k;
     _caller = caller;
+    _offerer = caller;
+    _attempt = 0;
+    retrying = false;
     _id = id;
     endedReason = null;
     micOn = true;
@@ -487,13 +508,14 @@ class CallController extends ChangeNotifier {
       if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected &&
           phase == CallPhase.connecting) {
         _timer?.cancel();
+        retrying = false;
         phase = CallPhase.connected;
         notifyListeners();
         unawaited(_logSelectedPair());
         _startStatsLog();
         if (sharing) unawaited(_tuneScreenSender());
       } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        _end('a conexão falhou', notify: true);
+        _onConnectFailed('a conexão falhou');
       }
     };
     return pc;
@@ -508,19 +530,23 @@ class CallController extends ChangeNotifier {
     RTCPeerConnection pc, {
     bool answering = false,
   }) async {
-    MediaStream? local;
+    MediaStream? local = _mic; // na segunda tentativa as faixas já existem
     _log('capturando a mídia local (${kind!.name})');
-    switch (kind!) {
-      case CallKind.audio:
-        local = await media.microphone();
-      case CallKind.video:
-        local = await media.camera();
-      case CallKind.screen:
-        try {
+    if (local != null) {
+      _log('reaproveitando a mídia local da tentativa anterior');
+    } else {
+      switch (kind!) {
+        case CallKind.audio:
           local = await media.microphone();
-        } catch (e) {
-          _log('sem microfone na chamada de tela: $e');
-        }
+        case CallKind.video:
+          local = await media.camera();
+        case CallKind.screen:
+          try {
+            local = await media.microphone();
+          } catch (e) {
+            _log('sem microfone na chamada de tela: $e');
+          }
+      }
     }
     _log(
       'mídia local capturada: ${local?.getTracks().map((t) => t.kind).toList()}',
@@ -568,12 +594,29 @@ class CallController extends ChangeNotifier {
     }
     if (kind == CallKind.screen) {
       if (_caller) {
-        final screen = await media.screen();
+        final screen = _screen ?? await media.screen();
         if (screen == null) throw StateError('transmissão de tela cancelada');
         _screen = screen;
         sharing = true;
         screenRenderer.srcObject = screen;
-        _videoSender = await _addScreenTrack(pc, screen);
+        RTCRtpTransceiver? shared;
+        if (answering) {
+          // Papéis invertidos: quem transmite agora responde, e a oferta já tem o m-line de vídeo.
+          for (final c in await pc.getTransceivers()) {
+            if (c.sender.track == null && c.receiver.track?.kind == 'video') {
+              shared = c;
+              break;
+            }
+          }
+        }
+        if (shared != null) {
+          await shared.sender.replaceTrack(screen.getVideoTracks().first);
+          await shared.setDirection(TransceiverDirection.SendRecv);
+          _videoSender = shared.sender;
+          _log('tela no transceptor ${shared.mid} da oferta');
+        } else {
+          _videoSender = await _addScreenTrack(pc, screen);
+        }
       } else if (!answering) {
         // Quem só recebe a tela do outro precisa de um transceptor de vídeo para ela.
         await pc.addTransceiver(
@@ -631,7 +674,7 @@ class CallController extends ChangeNotifier {
   Future<void> _startAsCaller() async {
     _log('chamador: abrindo a mídia');
     // O outro lado vê "escolhendo o que transmitir" em vez de ficar sem informação.
-    unawaited(_send({'t': 'preparing'}).catchError((_) {}));
+    if (_attempt == 0) unawaited(_send({'t': 'preparing'}).catchError((_) {}));
     try {
       final pc = _pc = await _newPeerConnection();
       await _attachLocalMedia(pc);
@@ -681,7 +724,7 @@ class CallController extends ChangeNotifier {
           _makingOffer ||
           (st != null && st != RTCSignalingState.RTCSignalingStateStable);
       // Atendente é "educado": cede em caso de oferta simultânea; o chamador ignora a do outro.
-      if (collision && _caller) return;
+      if (collision && _offerer) return;
       if (collision) {
         await pc.setLocalDescription(RTCSessionDescription('', 'rollback'));
       }
@@ -748,12 +791,95 @@ class CallController extends ChangeNotifier {
     if (p == null) return;
     final sw = Stopwatch()..start();
     try {
-      await transport.send(p, {...msg, 'id': _id});
+      await transport.send(p, {...msg, 'id': _id, 'a': _attempt});
       _log('enviado ${msg['t']} em ${sw.elapsedMilliseconds} ms');
     } catch (e) {
       _log('FALHA ao enviar ${msg['t']} após ${sw.elapsedMilliseconds} ms: $e');
       rethrow;
     }
+  }
+
+  // ------------------------------------------------------------------ inversão de papéis
+
+  /// A conexão não abriu (ICE falhou ou o prazo estourou). Na primeira tentativa, quem ofereceu
+  /// manda `swap` e os papéis se invertem: com NAT de rede móvel (CGNAT) o resultado depende de
+  /// quem abre primeiro (no campo, Linux→Windows conectava 2/2 e Windows→Linux 0/2). Quem
+  /// respondeu espera o `swap` em vez de desligar por conta própria.
+  Future<void> _onConnectFailed(String reason) async {
+    if (phase != CallPhase.connecting) {
+      await _end(reason, notify: true);
+      return;
+    }
+    if (_attempt > 0) {
+      await _end(
+        'sem caminho direto com este contato (rede móvel ou roteador restritivo): '
+        'tente de outra rede',
+        notify: true,
+      );
+      return;
+    }
+    if (!_offerer) {
+      // Dá tempo ao outro lado para detectar a falha e mandar o `swap`.
+      _timer?.cancel();
+      _timer = Timer(
+        const Duration(seconds: 20),
+        () => _end('a conexão não abriu', notify: true),
+      );
+      return;
+    }
+    _log('a conexão não abriu: invertendo os papéis (tentativa 2)');
+    _attempt = 1;
+    _offerer = false;
+    retrying = true;
+    _timer?.cancel();
+    _timer = Timer(
+      _connectTimeout,
+      () => _onConnectFailed('a conexão não abriu'),
+    );
+    await _dropConnection();
+    notifyListeners();
+    try {
+      await _send({'t': 'swap'});
+    } catch (e) {
+      await _end('a conexão não abriu', notify: false);
+    }
+  }
+
+  /// O outro lado pediu a inversão: este lado passa a mandar a oferta.
+  Future<void> _onSwap(Map<String, dynamic> m) async {
+    if (phase != CallPhase.connecting || _attempt != 0 || _offerer) return;
+    _log('recebido swap: passando a oferecer (tentativa 2)');
+    _attempt = (m['a'] as int?) ?? 1;
+    _offerer = true;
+    retrying = true;
+    _timer?.cancel();
+    _timer = Timer(
+      _connectTimeout,
+      () => _onConnectFailed('a conexão não abriu'),
+    );
+    await _dropConnection();
+    notifyListeners();
+    await _startAsCaller();
+  }
+
+  /// Fecha só a conexão WebRTC, mantendo as faixas locais (microfone, câmera, tela) para a
+  /// próxima tentativa: a tela não pede o seletor de novo.
+  Future<void> _dropConnection() async {
+    final pc = _pc;
+    _pc = null;
+    _statsTimer?.cancel();
+    _videoSender = null;
+    _reused.clear();
+    _pendingIce.clear();
+    _remoteSet = false;
+    _makingOffer = false;
+    try {
+      await pc?.dispose();
+    } catch (e) {
+      _log('dispose da conexão: $e');
+    }
+    await pc?.close();
+    _log('conexão da tentativa anterior fechada');
   }
 
   // ------------------------------------------------------------------ fim
@@ -796,6 +922,7 @@ class CallController extends ChangeNotifier {
     screenRenderer.srcObject = null;
     phase = CallPhase.idle;
     peerPreparing = false;
+    retrying = false;
     endedReason = reason;
     sharing = false;
     remoteHasVideo = false;

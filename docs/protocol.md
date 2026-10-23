@@ -222,5 +222,5 @@ Uma conexão QUIC por sinal, apenas de contatos mútuos: o iniciador abre um str
 
 O envelope é `kind = CallSignal`, com `conversation_id` 1:1, sem `parents`, **um** destinatário (o
 contato) e conteúdo de 1 a 64 KiB (JSON do app: `invite`, `accept`, `reject`, `busy`, `offer`,
-`answer`, `ice`, `hangup`). Validação: id/assinatura, autor = o par, carimbo a ±24 h do relógio de parede, o mesmo limite das mensagens (o remetente usa `Hlc::new(agora, 0)`, nunca o HLC lógico; o receptor não o incorpora ao seu), id inédito
+`answer`, `ice`, `swap`, `hangup`; todo sinal da conexão leva `a`, o número da tentativa, 0 ou 1). Validação: id/assinatura, autor = o par, carimbo a ±24 h do relógio de parede, o mesmo limite das mensagens (o remetente usa `Hlc::new(agora, 0)`, nunca o HLC lógico; o receptor não o incorpora ao seu), id inédito
 (memória dos 10 000 ids mais recentes) e ≤ 200 sinais por contato a cada 10 s. Não é gravado no banco nem sincronizado.

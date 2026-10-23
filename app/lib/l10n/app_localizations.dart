@@ -841,6 +841,12 @@ abstract class L {
   /// **'Conectando…'**
   String get callConnecting;
 
+  /// No description provided for @callRetrying.
+  ///
+  /// In pt, this message translates to:
+  /// **'Tentando outro caminho…'**
+  String get callRetrying;
+
   /// No description provided for @callHangup.
   ///
   /// In pt, this message translates to:
