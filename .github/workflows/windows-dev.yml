@@ -1,0 +1,52 @@
+name: windows-dev
+
+# Build rápido só para testar o app no Windows (sem Linux, instalador, CLI nem release): gera um
+# zip portátil como artefato. O diretório de build do Flutter é guardado entre execuções, então só o
+# que mudou é recompilado. Rodar: Actions -> windows-dev -> Run workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          cache: true
+      - name: Guarda o build do app entre execuções (inclui o libwebrtc baixado)
+        uses: actions/cache@v4
+        with:
+          path: app/build/windows
+          key: windows-dev-${{ hashFiles('app/pubspec.lock') }}-${{ github.run_id }}
+          restore-keys: windows-dev-${{ hashFiles('app/pubspec.lock') }}-
+      - name: Compila o app (o CMake compila o núcleo em Rust)
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build windows --release
+      - name: Runtime do Visual C++ junto do app
+        run: |
+          $bundle = "app\build\windows\x64\runner\Release"
+          $crt = Get-ChildItem "${env:ProgramFiles}\Microsoft Visual Studio" -Recurse -Directory -Filter "Microsoft.VC14*.CRT" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\x64\\" } | Select-Object -First 1
+          if (-not $crt) { throw "runtime do Visual C++ não encontrado" }
+          Copy-Item "$($crt.FullName)\*.dll" $bundle -Force
+      - name: Zip portátil
+        run: |
+          New-Item -ItemType Directory dist -Force | Out-Null
+          Compress-Archive -Path "app\build\windows\x64\runner\Release\*" -DestinationPath "dist\enxame-windows-dev.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enxame-windows-dev
+          path: dist/enxame-windows-dev.zip
+          if-no-files-found: error
