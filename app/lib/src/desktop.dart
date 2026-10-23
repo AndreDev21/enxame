@@ -57,6 +57,9 @@ class DesktopShell with WindowListener {
 
   @override
   Future<void> onWindowClose() async {
+    debugPrint(
+      '[janela] fechar: closeToTray=${prefs.closeToTray} hasTray=$hasTray quitting=$_quitting',
+    );
     if (_quitting) return;
     if (prefs.closeToTray && hasTray) {
       await windowManager.hide();
@@ -135,13 +138,15 @@ class DesktopShell with WindowListener {
     }
     try {
       final tray = TrayIcon.create();
+      debugPrint('[bandeja] TrayIcon.create: ${tray != null}');
       if (tray == null) return;
       tray.icon = ImageAsset.fromAsset('assets/tray_icon.png');
       tray.setTooltip('Enxame');
       tray.addListener((e) {
         if (e is TrayIconClickedEvent) show();
       });
-      tray.setVisible(true);
+      final shown = tray.setVisible(true);
+      debugPrint('[bandeja] visível: $shown');
       _tray = tray;
       _rebuildMenu();
     } catch (e) {
