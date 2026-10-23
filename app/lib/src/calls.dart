@@ -485,7 +485,19 @@ class CallController extends ChangeNotifier {
       _mic = local;
       for (final t in local.getTracks()) {
         _log('adicionando a faixa ${t.kind} à conexão');
-        final s = await pc.addTrack(t, local);
+        // `addTrack` derruba o app no Windows (queda nativa, vista no campo); o transceptor com a
+        // faixa faz o mesmo e é o caminho que a tela já usa.
+        final tr = await pc.addTransceiver(
+          track: t,
+          kind: t.kind == 'video'
+              ? RTCRtpMediaType.RTCRtpMediaTypeVideo
+              : RTCRtpMediaType.RTCRtpMediaTypeAudio,
+          init: RTCRtpTransceiverInit(
+            direction: TransceiverDirection.SendRecv,
+            streams: [local],
+          ),
+        );
+        final s = tr.sender;
         _log('faixa ${t.kind} adicionada');
         if (t.kind == 'video') {
           _videoSender = s;
