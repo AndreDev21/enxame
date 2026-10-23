@@ -41,7 +41,10 @@ const _stun = [
 ];
 
 const _ringTimeout = Duration(seconds: 45);
-const _connectTimeout = Duration(seconds: 30);
+const _connectTimeout = Duration(seconds: 25);
+
+/// Prazo da primeira tentativa: uma conexão que abre leva ~4 s; passando disso, inverte os papéis.
+const _firstAttemptTimeout = Duration(seconds: 10);
 
 /// Uma chamada 1:1 por vez. Sinalização por mensagens JSON (`invite`, `accept`, `reject`, `busy`,
 /// `offer`, `answer`, `ice`, `hangup`); mídia por WebRTC (DTLS-SRTP).
@@ -54,6 +57,49 @@ class CallController extends ChangeNotifier {
   }) {
     _sub = transport.incoming.listen(_onSignal);
   }
+
+  /// Papéis que funcionaram com cada contato (`<dados>/call_roles.json`): se com ele só conecta
+  /// quando quem atendeu oferece, as próximas chamadas já começam assim, sem esperar a falha.
+  File? rolesFile;
+  Map<String, bool>? _roles;
+
+  Map<String, bool> _loadRoles() {
+    final cached = _roles;
+    if (cached != null) return cached;
+    final out = <String, bool>{};
+    try {
+      final j =
+          jsonDecode(rolesFile!.readAsStringSync()) as Map<String, dynamic>;
+      for (final e in j.entries) {
+        if (e.value is bool) out[e.key] = e.value as bool;
+      }
+    } catch (_) {}
+    return _roles = out;
+  }
+
+  /// Com este contato, nesta direção, a chamada só conectou com quem atendeu oferecendo?
+  bool _calleeOffersFor(String peerFp, {required bool iAmCaller}) =>
+      rolesFile != null && (_loadRoles()['$peerFp|$iAmCaller'] ?? false);
+
+  void _rememberRole() {
+    final p = peer;
+    if (p == null || rolesFile == null) return;
+    // Quem ofereceu na tentativa que funcionou: a que começou assim, a menos que tenha trocado.
+    final calleeOffers = _calleeOfferedFirst != (_attempt == 1);
+    final roles = _loadRoles();
+    final key = '$p|$_caller';
+    if (roles[key] == calleeOffers) return;
+    roles[key] = calleeOffers;
+    _log(
+      'papéis que funcionam com este contato: quem atende oferece = $calleeOffers',
+    );
+    try {
+      rolesFile!.writeAsStringSync(jsonEncode(roles));
+    } catch (_) {}
+  }
+
+  /// A primeira tentativa já começou com quem atendeu oferecendo (lembrado ou pedido pelo outro).
+  bool _calleeOfferedFirst = false;
 
   /// Arquivo de diagnóstico (`<dados>/calls.log`): tempos de cada etapa, para achar lentidão.
   File? logFile;
@@ -149,8 +195,18 @@ class CallController extends ChangeNotifier {
     phase = CallPhase.outgoing;
     notifyListeners();
     _timer = Timer(_ringTimeout, () => _end('sem resposta', notify: true));
+    // Já se sabe que com este contato só conecta se quem atende oferecer: pede isso no convite.
+    if (_calleeOffersFor(peerFp, iAmCaller: true)) {
+      _calleeOfferedFirst = true;
+      _offerer = false;
+    }
     try {
-      await transport.send(peerFp, {'t': 'invite', 'id': _id, 'kind': k.name});
+      await transport.send(peerFp, {
+        't': 'invite',
+        'id': _id,
+        'kind': k.name,
+        if (_calleeOfferedFirst) 'so': 1,
+      });
     } catch (e) {
       await _end('não foi possível chamar: $e');
     }
@@ -163,10 +219,13 @@ class CallController extends ChangeNotifier {
     phase = CallPhase.connecting;
     notifyListeners();
     _timer = Timer(
-      _connectTimeout,
+      _attemptTimeout(),
       () => _onConnectFailed('a conexão não abriu'),
     );
-    await _send({'t': 'accept'});
+    if (_calleeOffersFor(peer!, iAmCaller: false)) _calleeOfferedFirst = true;
+    if (_calleeOfferedFirst) _offerer = true;
+    await _send({'t': 'accept', if (_calleeOfferedFirst) 'o': 1});
+    if (_offerer) await _startAsCaller();
   }
 
   Future<void> reject() async {
@@ -397,6 +456,7 @@ class CallController extends ChangeNotifier {
       if (k == null || id is! String) return;
       await ensureRenderers();
       _begin(s.peer, s.name, k, caller: false, id: id);
+      _calleeOfferedFirst = m['so'] == 1;
       phase = CallPhase.incoming;
       _timer = Timer(_ringTimeout, () => _end('perdida', notify: false));
       notifyListeners();
@@ -414,11 +474,19 @@ class CallController extends ChangeNotifier {
           _timer?.cancel();
           phase = CallPhase.connecting;
           _timer = Timer(
-            _connectTimeout,
+            _attemptTimeout(),
             () => _onConnectFailed('a conexão não abriu'),
           );
           notifyListeners();
-          await _startAsCaller();
+          if (m['o'] == 1) {
+            // Quem atendeu vai oferecer: este lado espera a oferta.
+            _calleeOfferedFirst = true;
+            _offerer = false;
+          } else {
+            _calleeOfferedFirst = false;
+            _offerer = true;
+            await _startAsCaller();
+          }
         }
       case 'reject':
         await _end('recusada pelo outro lado', notify: false);
@@ -454,6 +522,7 @@ class CallController extends ChangeNotifier {
     kind = k;
     _caller = caller;
     _offerer = caller;
+    _calleeOfferedFirst = false;
     _attempt = 0;
     retrying = false;
     _id = id;
@@ -509,6 +578,7 @@ class CallController extends ChangeNotifier {
           phase == CallPhase.connecting) {
         _timer?.cancel();
         retrying = false;
+        _rememberRole();
         phase = CallPhase.connected;
         notifyListeners();
         unawaited(_logSelectedPair());
@@ -805,6 +875,9 @@ class CallController extends ChangeNotifier {
   /// manda `swap` e os papéis se invertem: com NAT de rede móvel (CGNAT) o resultado depende de
   /// quem abre primeiro (no campo, Linux→Windows conectava 2/2 e Windows→Linux 0/2). Quem
   /// respondeu espera o `swap` em vez de desligar por conta própria.
+  Duration _attemptTimeout() =>
+      _attempt == 0 ? _firstAttemptTimeout : _connectTimeout;
+
   Future<void> _onConnectFailed(String reason) async {
     if (phase != CallPhase.connecting) {
       await _end(reason, notify: true);

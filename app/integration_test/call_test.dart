@@ -3,6 +3,7 @@
 // Cobre a transmissão de tela: a tela real é capturada pelo chamador e decodificada pelo outro lado.
 // Uso: flutter test integration_test/call_test.dart -d linux
 import 'dart:async';
+import 'dart:io';
 
 import 'package:enxame_app/src/calls.dart';
 import 'package:enxame_app/src/device_media.dart';
@@ -89,6 +90,9 @@ void main() {
     (tester) async {
       wa.dropFirstAttemptIce = true;
       wb.dropFirstAttemptIce = true;
+      final dir = Directory.systemTemp.createTempSync('enxame-roles');
+      a.rolesFile = File('${dir.path}/a.json');
+      b.rolesFile = File('${dir.path}/b.json');
       await a.call('B', 'Pessoa B', CallKind.screen);
       await until(() => b.phase == CallPhase.incoming);
       await b.accept();
