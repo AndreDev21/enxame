@@ -82,6 +82,12 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
      logs em `%APPDATA%\enxame\calls.log`; falha nativa: `Get-WinEvent ... Id=1000`). O workflow
      `windows-dev.yml` (zip de teste) demorou o mesmo que a release: cache não ajudou.
    Próxima fase depois desta: Fase 7 (chamadas em grupo e TURN, stretch). — leia o princípio abaixo.
+   **Roadmap decidido em 2026-10-24 (a executar no roadmap atual, ainda sem mudanças no app):**
+   [`docs/roadmap-fase7-conformidade.md`](roadmap-fase7-conformidade.md) redefine a Fase 7 (conectividade
+   de mídia sem servidor: escada de conexão, mídia sobre iroh, relays de amigos e pool comunitário) e
+   acrescenta a Fase 8 (conformidade ECA Digital, somente 18+), a Fase 9 (controle parental) e o modelo
+   de ameaças. Estudo de base: [`estudo-conectividade-sem-servidor.md`](estudo-conectividade-sem-servidor.md).
+   Os ADRs 0015 a 0017 ainda serão abertos. O bloco 7.0 pode entrar no fim da Fase 6.
 
 ## Princípio de produto (decidido nesta sessão)
 
