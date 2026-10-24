@@ -39,7 +39,8 @@ Quanto mais contatos ativos, melhor a entrega offline e a distribuição de arqu
 |---|---|
 | Local-first | O app funciona offline; o banco local é a fonte da verdade do usuário. |
 | Friend-to-friend | Só contatos aceitos mutuamente trocam tráfego e veem o IP um do outro. |
-| Infra mínima, não zero | Rendezvous/relay leve (iroh-relay) é aceito e deve ser self-hostável via Docker. |
+| Sem servidor do projeto | **Nenhum servidor que o projeto precise hospedar e pagar, e nenhum que não possa ser substituído por um equivalente open source rodado por qualquer pessoa** (decisão D2 do roadmap `docs/roadmap-fase7-conformidade.md`). Rendezvous/relay leve (iroh-relay) é aceito e self-hostável. |
+| Ninguém fica sem se comunicar | Voz funciona sempre, inclusive com duas pessoas atrás de CGNAT e sem terceiro disponível; vídeo e tela dependem de caminho direto ou de relay com banda (D3). |
 | Contribuição por contexto | O papel depende do estado do dispositivo (rede, energia, NAT), não do tipo do dispositivo. |
 | Contribuição visível e limitada | Usuário vê e limita quanto contribui (banda, GB/mês). Nada escondido. |
 | Bônus, nunca punição | Quem não pode contribuir (4G, bateria) mantém experiência básica completa. |
@@ -73,13 +74,14 @@ Quanto mais contatos ativos, melhor a entrega offline e a distribuição de arqu
 - Forward secrecy / MLS para grupos (fase pós-MVP; deixar o envelope preparado).
 - Multi-dispositivo por identidade (estrutura preparada, não implementada).
 - Comunidades grandes estilo "servidor do Discord", canais, roles, moderação.
-- Chamadas **em grupo** e SFU (chamadas 1:1 e transmissão de tela 1:1 estão **dentro**, na Fase 6).
+- Chamadas **em grupo** e SFU (chamadas 1:1 e transmissão de tela 1:1 estão **dentro**, na Fase 6; em grupo ficam depois da Fase 9).
+- Roteamento em cebola/multi-hop para chamadas e reputação global de relays (descartados; ver ADR 0015 e `docs/estudo-conectividade-sem-servidor.md`).
 - **Mobile (Android e iOS)**: roadmap na seção 17.
 - Push notifications.
 - Incentivos além do contador (nada de token/cripto, nunca).
 - Wi-Fi Direct / Bluetooth mesh.
 
-Chamadas 1:1 (áudio, vídeo e tela) entram na Fase 6, depois do app básico. Chamadas em grupo, TURN próprio e transmissão de tela para vários espectadores ficam na Fase 7 (stretch).
+Chamadas 1:1 (áudio, vídeo e tela) entram na Fase 6, depois do app básico. A conectividade de mídia sem servidor (relays de amigos e pool comunitário, em vez de TURN hospedado pelo projeto) é a Fase 7; a conformidade com o ECA Digital (somente 18+) é a Fase 8 e o controle parental a Fase 9. Chamadas em grupo e transmissão de tela para vários espectadores ficam para depois delas. Detalhe em `docs/roadmap-fase7-conformidade.md`.
 
 ---
 
@@ -383,6 +385,10 @@ Contabilidade: cada byte servido para terceiros incrementa `contribution_stats` 
 | Flood de carry | Quotas por contato e total, TTL | — |
 | Chave em disco | Keystore do SO via `keyring` | Fallback em arquivo com permissão restrita |
 | Bug derruba a rede | Papéis locais, sem estado global, protocolo versionado | — |
+| Relay de mídia lê ou adultera a chamada | DTLS-SRTP E2E; fingerprints na sinalização assinada (S1) | Relay vê metadados (IPs, horários, volume) e pode degradar a chamada |
+| Relay comunitário hostil ou Sybil | Confiança local (qualidade medida + endosso de amigos + antiguidade + diversidade), sem reputação global; chave efêmera por sessão (S5) | Metadados expostos a desconhecidos; UI sinaliza e permite bloquear |
+
+Modelo de ameaças consolidado e itens S1–S12 (autenticação da mídia, sigilo futuro, dados em repouso, backup, abuso de relays, telemetria, cadeia de suprimentos, denúncia): seção 5 de `docs/roadmap-fase7-conformidade.md` e ADR 0017.
 
 ---
 
@@ -427,7 +433,7 @@ Contabilidade: cada byte servido para terceiros incrementa `contribution_stats` 
 - Autostart opcional com o sistema (desligado por padrão).
 - **Chamadas 1:1 (bloco de chamadas):** áudio, vídeo e **transmissão de tela do computador** (o item de maior valor do bloco: compartilhar a tela inteira ou uma janela, com ou sem áudio do sistema, durante a chamada ou como chamada própria "só tela").
   - Mídia via `flutter_webrtc` (WebRTC: cripto DTLS-SRTP, controle de congestionamento e codecs prontos; nada de cripto própria). Sinalização (oferta/resposta SDP e candidatos ICE) em envelopes `CallSignal` E2E sobre a conexão iroh, pela conversa 1:1; só contatos mútuos podem chamar; o receptor aceita ou recusa, e há toque/aviso de chamada.
-  - Descoberta de caminho: ICE com STUN público na primeira versão; relay de mídia/TURN fica em ADR (decisão aberta 5). Documentar o comportamento com NAT simétrico e com a rede móvel (CGNAT), onde a mídia direta pode não abrir sem TURN.
+  - Descoberta de caminho: ICE com STUN público na primeira versão; relay de mídia sem servidor é a Fase 7 (decisão 5). Documentar o comportamento com NAT simétrico e com a rede móvel (CGNAT), onde a mídia direta pode não abrir sem relay (Fase 7).
   - Captura de tela: no Linux, Wayland via portal `xdg-desktop-portal` + PipeWire (testar em Hyprland, que precisa do `xdg-desktop-portal-hyprland`) e X11 (BSPWM); no Windows, captura nativa do `flutter_webrtc`. Seletor de tela/janela, indicador visível de "você está transmitindo" e botão de parar sempre acessível.
   - Qualidade adaptativa (resolução/taxa de quadros pela banda disponível); a tela prioriza nitidez em vez de taxa de quadros.
   - Privacidade: câmera, microfone e tela só são capturados depois de aceitar a chamada e de uma ação explícita do usuário; o app mostra quando cada um está ativo.
@@ -439,13 +445,31 @@ Contabilidade: cada byte servido para terceiros incrementa `contribution_stats` 
   - **DNS automático (feito no núcleo, ADR 0010):** o app testa o resolvedor do sistema e, se ele não responder (EDNS descartado), passa sozinho a servidores públicos (`dns_servers`), sem o usuário saber; o `diag` mostra o motivo quando isso acontece;
   - "usar o meu relay / meu servidor" fica numa tela de configurações avançadas (URL do relay, CA própria), nunca no caminho do onboarding;
   - binários prontos para baixar (GitHub Releases, gerados pela CI) para quem ainda usa a linha de comando.
-- **Aceite das chamadas:** duas máquinas na mesma rede e em redes diferentes (cone ↔ cone) fazem chamada de **áudio**, de **vídeo** e **transmissão de tela** 1:1 de ponta a ponta com sinalização E2E; a tela do remetente aparece legível no receptor (texto de terminal legível, taxa de quadros útil para rolar e digitar), com parar/retomar; recusar, cancelar e perder a rede encerram a chamada sem travar o app; Linux (X11 e Wayland) e Windows capturam a tela. Com NAT simétrico ou 4G, o comportamento (falha clara ou uso de TURN) está documentado.
+- **Aceite das chamadas:** duas máquinas na mesma rede e em redes diferentes (cone ↔ cone) fazem chamada de **áudio**, de **vídeo** e **transmissão de tela** 1:1 de ponta a ponta com sinalização E2E; a tela do remetente aparece legível no receptor (texto de terminal legível, taxa de quadros útil para rolar e digitar), com parar/retomar; recusar, cancelar e perder a rede encerram a chamada sem travar o app; Linux (X11 e Wayland) e Windows capturam a tela. Com NAT simétrico ou 4G, o comportamento (falha clara ou, quando existir, relay da Fase 7) está documentado.
 - **Aceite:** uma pessoa não técnica instala o app e troca mensagens e arquivos com um contato **sem abrir terminal nem definir variável alguma**, inclusive atrás de um roteador que descarta EDNS; Linux ↔ Windows trocam mensagens e arquivos em redes diferentes; com a janela fechada, o app na bandeja continua atuando como carrier; o papel muda ao ligar o modo jogo ou desconectar o carregador do notebook; duas máquinas na mesma LAN conectam direto sem relay.
 
-### Fase 7 — (Stretch) Chamadas em grupo e TURN
-- Chamadas com mais de dois participantes (malha pequena ou SFU leve) e transmissão de tela para vários espectadores.
-- TURN próprio opcional no `deploy/` (para NAT simétrico e 4G), junto do relay; ou mídia sobre o relay do iroh, conforme o ADR da decisão 5.
-- **Aceite:** chamada com 3 a 4 participantes estável por 30 min; tela compartilhada visível a todos; chamada 1:1 atrás de NAT simétrico completa via TURN.
+### Fase 7 — Conectividade de mídia sem servidor (ADR 0015)
+
+Substitui o antigo "TURN próprio": nada que o projeto hospede. Detalhe completo, tarefas e critérios em [`docs/roadmap-fase7-conformidade.md`](docs/roadmap-fase7-conformidade.md); alternativas avaliadas em [`docs/estudo-conectividade-sem-servidor.md`](docs/estudo-conectividade-sem-servidor.md).
+
+- **Escada de conexão** (para no primeiro degrau que funcionar): IPv6 direto → IPv4 direto com punching avançado → relay de amigo → relay de amigo-de-amigo / pool comunitário com endosso → pool sem endosso (só voz) → relay público n0 (só voz, desligável).
+- **7.0** ajustes imediatos (timeout 10 s → 7 s, mensagem de falha, detecção de CGNAT para começar pela ordem certa, preferir IPv6); **7.1** instrumentação e medição de campo; **7.2** mídia sobre o iroh (TURN local em loopback com upstream em datagramas QUIC); **7.3** punching avançado (TTL baixo, multiporta, UPnP/NAT-PMP/PCP); **7.4** relay no `enxame-node` e opt-in no desktop; **7.5** protocolo `enxame/relay/1` e pool comunitário com confiança local; **7.6** n0 como último degrau, só voz; **7.7** incentivo por contribuição total; **7.8** chamada protegida (posterior).
+- **Aceite:** voz e vídeo entre dois dispositivos atrás de CGNAT sem configuração do usuário, com latência adicional < 80 ms com relay no Brasil; voz conecta mesmo com só duas pessoas em CGNAT e nenhum relay de amigo/pool; troca automática de relay degradado.
+
+### Fase 8 — Conformidade ECA Digital: somente maiores de 18 (ADR 0016)
+
+- Credencial de idade assinada (`AgeCredential`, sem dado pessoal) verificada pelos pares; cliente oficial recusa contato, grupo e chamada sem credencial válida; relays não exigem credencial. Builds oficiais assinados como pré-requisito. Emissor de aferição decidido após revisão jurídica e parâmetros da ANPD.
+- **Bloqueante do lançamento público:** revisão por advogado de direito digital.
+- **Aceite:** cliente oficial não estabelece contato com identidade sem credencial; cliente modificado fica isolado da rede oficial.
+
+### Fase 9 — Controle parental (futuro)
+
+- Credencial com faixas etárias; chave do responsável co-assina contatos e grupos do menor; padrões protetivos. Revisão jurídica antes de iniciar.
+
+### Fase 7 antiga (movida para depois da Fase 9)
+
+- Chamadas com mais de dois participantes (malha pequena ou SFU leve) e transmissão de tela para vários espectadores, sobre a conectividade da Fase 7.
+- **Aceite:** chamada com 3 a 4 participantes estável por 30 min; tela compartilhada visível a todos.
 
 ---
 
@@ -487,8 +511,8 @@ Contabilidade: cada byte servido para terceiros incrementa `contribution_stats` 
 2. **Licença:** recomendação AGPL-3.0 para o projeto inteiro (impede fork fechado oferecido como serviço, como em Signal e Element). Alternativa: MIT/Apache-2.0 dual no `enxame-core` para maximizar adoção como biblioteca, AGPL no app.
 3. Reconciliação por HLC (MVP) vs RBSR.
 4. Formato de cifragem em streaming de arquivos.
-5. Estratégia para calls com NAT simétrico (TURN próprio vs mídia sobre o relay do iroh). Na Fase 6 começa com STUN público; relays públicos do iroh limitam a banda (visto em campo, ~1 MB/s), então a mídia **não** deve passar por eles.
-6. Caminho para MLS (`openmls`) e multi-dispositivo.
+5. **Decidida (2026-10-24, ADR 0015 a abrir):** sem TURN hospedado pelo projeto. Mídia sobre o iroh com relays de amigos e pool comunitário com confiança local; relays públicos do n0 só como último degrau, apenas voz (limitam a banda, ~1 MB/s em campo). Ver Fase 7. Na Fase 6 segue STUN público + inversão de papéis.
+6. Caminho para MLS (`openmls`) e multi-dispositivo (S2 e S4 do roadmap: avaliar `vodozemac` para 1:1 e `openmls` para grupos).
 7. Empacotamento e distribuição desktop (AppImage/Flatpak/AUR no Linux; MSIX vs Inno Setup no Windows).
 8. **Relay padrão** — decidido no ADR 0008: relays públicos do iroh por padrão; relay próprio opcional. Reabrir se o iroh/n0 mudar as condições dos relays públicos, ou se o projeto decidir operar um relay oficial.
 
