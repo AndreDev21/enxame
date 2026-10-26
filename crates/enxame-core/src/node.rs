@@ -4,10 +4,12 @@ mod calls;
 mod carry_flow;
 mod files;
 mod groups;
+mod media;
 mod runtime;
 
 pub use files::{Downloaded, FileEntry, PrefetchedBlob};
 pub use groups::{GroupInfo, GroupMemberInfo, SentGroupMessage};
+pub use media::MediaBridge;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -40,7 +42,8 @@ use crate::{
     net::{self, NatKind, NatReport, PathMetrics, PathMonitor},
     order::order_ids,
     proto::{
-        self, ContactMsg, Hello, ALPN_CALL, ALPN_CARRY, ALPN_CONTACT, ALPN_SYNC, SUPPORTED_VERSIONS,
+        self, ContactMsg, Hello, ALPN_CALL, ALPN_CARRY, ALPN_CONTACT, ALPN_MEDIA, ALPN_SYNC,
+        SUPPORTED_VERSIONS,
     },
     roles::{effective_kbps_cap, PlatformSignals, RateLimiter, RoleEngine, ThroughputEstimator},
     store::{self, Store},
@@ -188,6 +191,8 @@ struct Inner {
     identity: Identity,
     keystore_name: &'static str,
     call_guard: Mutex<crate::calls::SignalGuard>,
+    /// Pontes de mídia do atendente esperando o chamador discar (por EndpointId do contato).
+    media_pending: Mutex<HashMap<[u8; 32], tokio::sync::oneshot::Sender<Connection>>>,
     dns: net::DnsChoice,
     endpoint: Endpoint,
     contacts: Mutex<ContactBook>,
@@ -432,6 +437,7 @@ impl Enxame {
             ALPN_SYNC.to_vec(),
             ALPN_CARRY.to_vec(),
             ALPN_CALL.to_vec(),
+            ALPN_MEDIA.to_vec(),
             iroh_blobs::ALPN.to_vec(),
         ]);
         let role_mode = RoleMode::parse(&cfg.role)?;
@@ -461,6 +467,7 @@ impl Enxame {
             identity,
             keystore_name,
             call_guard: Mutex::new(crate::calls::SignalGuard::default()),
+            media_pending: Mutex::new(HashMap::new()),
             dns,
             endpoint,
             contacts: Mutex::new(contacts),
@@ -1402,6 +1409,7 @@ async fn accept_loop(inner: Arc<Inner>) {
                 a if a == ALPN_SYNC => handle_sync(&inner, &conn).await,
                 a if a == ALPN_CARRY => carry_flow::handle_carry(&inner, &conn).await,
                 a if a == ALPN_CALL => calls::handle_call(&inner, &conn).await,
+                a if a == ALPN_MEDIA => media::handle_media(&inner, &conn).await,
                 a if a == iroh_blobs::ALPN => inner
                     .blobs
                     .protocol

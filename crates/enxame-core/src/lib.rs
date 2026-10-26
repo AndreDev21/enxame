@@ -17,6 +17,7 @@ mod groups;
 mod hlc;
 mod identity;
 mod keystore;
+mod media;
 mod net;
 mod node;
 mod order;
@@ -39,11 +40,13 @@ pub use identity::{fingerprint, unix_now, DeviceCert, Identity, InviteTicket};
 #[cfg(feature = "os-keyring")]
 pub use keystore::OsKeyStore;
 pub use keystore::{open_keystore, FileKeyStore, KeyStore};
+pub use media::{BridgeCounters, BridgeRole, BridgeStats};
 pub use net::{DnsChoice, NatKind, NatReport, PathKind, PathMetrics, FALLBACK_DNS};
 pub use node::{
     list_contacts, read_history, AddOutcome, ContributionSummary, DiagReport, Downloaded, Enxame,
-    FileEntry, GroupInfo, GroupMemberInfo, Message, MessageFile, PeerDiag, PendingRequest,
-    PrefetchedBlob, SentFile, SentGroupMessage, SentMessage, StartOptions, DEFAULT_DIRECT_WAIT,
+    FileEntry, GroupInfo, GroupMemberInfo, MediaBridge, Message, MessageFile, PeerDiag,
+    PendingRequest, PrefetchedBlob, SentFile, SentGroupMessage, SentMessage, StartOptions,
+    DEFAULT_DIRECT_WAIT,
 };
 pub use proto::{ALPN_CONTACT, ALPN_SYNC};
 pub use role::Role;

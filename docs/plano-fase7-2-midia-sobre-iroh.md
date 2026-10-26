@@ -49,7 +49,7 @@ libwebrtc ──UDP── 127.0.0.1:P (TURN local, crate turn) ── Conn próp
 | # | Etapa | Saída |
 |---|---|---|
 | 1 ✅ | **Spike do libwebrtc (feito em 2026-10-26, ver abaixo):** `turn` em `127.0.0.1` com `RelayAddressGenerator` que faz eco entre dois peers no mesmo processo (sem iroh) | `integration_test` Linux: duas conexões WebRTC conectam **só** por candidatos `relay` (filtrando host/srflx) e trocam áudio. Responde a incógnita "o libwebrtc aceita TURN em loopback?" |
-| 2 | **Ponte sobre o iroh:** ALPN `enxame/media/1`, `Conn` com datagramas, endereços virtuais | Teste em `crates/enxame-core/tests/media.rs`: dois nós in-process, pacotes UDP de 1200 B ida e volta; `proptest` do quadro; contagem de descartes |
+| 2 ✅ | **Ponte sobre o iroh (feita em 2026-10-26, ver abaixo):** ALPN `enxame/media/1`, `Conn` com datagramas, endereços virtuais | Teste em `crates/enxame-core/tests/media.rs`: dois nós in-process, pacotes UDP de 1200 B ida e volta; `proptest` do quadro; contagem de descartes |
 | 3 | **MTU:** medir `max_datagram_size` por caminho (direto, relay local do netsim); se o RTP não couber, fragmentar com `[idx][total]` | Tabela de tamanhos no relatório; nenhum pacote descartado por tamanho |
 | 4 | **Integração no app:** FFI, `iceServers`, política da 1ª tentativa, mensagens e métricas (`ladder: relay`, caminho do iroh) | `call_test` com os dois controladores usando a ponte: conecta com `dropAllIce` nos candidatos diretos |
 | 5 | **Campo com dois CGNAT:** Windows no hotspot ↔ outro celular/operadora, ou netsim simétrico | Voz e vídeo sem configuração; medições do 7.1 (RTT, perda, trocas de caminho) |
@@ -91,3 +91,23 @@ endereços virtuais `198.18.0.1:40000` e `198.18.0.2:40000`; duas conexões WebR
 - **Ainda não testado:** mídia de verdade (áudio/vídeo) pelo relay, só o canal de dados (mesmo transporte
   DTLS); troca relay → direto no meio de uma chamada; MTU (o spike entrega em memória, sem limite de datagrama);
   o `Conn` sobre iroh (etapa 2).
+
+## Resultado da etapa 2 (ponte sobre o iroh, 2026-10-26)
+
+Código: `crates/enxame-core/src/media.rs` (endereços virtuais, `Conn`, autenticação, contadores),
+`src/node/media.rs` (`Enxame::media_bridge_start(contato, BridgeRole)` → `MediaBridge { url, username, credential }`,
+`stats()`, `is_linked()`, `is_direct()`, `max_datagram_size()`, `close()`; aceite do ALPN), `proto.rs`
+(`ALPN_MEDIA`, quadro com versão e teste de round-trip com `proptest`), `docs/protocol.md`.
+Teste: `cargo test -p enxame-core --test media` (nós in-process, **clientes TURN reais** do crate `turn`).
+
+- Dois nós amigos, ponte ligada (atendente sobe primeiro, chamador disca); cada cliente TURN aloca no seu TURN
+  local, recebe o endereço virtual (`198.18.0.1:40000` / `198.18.0.2:40000`) e troca 50 pacotes de 900 B em cada
+  sentido com conteúdo conferido: ≥ 45 de 50 chegam (UDP), sem descartes por "ponte não pronta".
+- Só a primeira alocação é concedida; senha errada e contato inexistente/não mútuo são recusados; sem atendente
+  esperando a ponte do chamador não liga (e ele tenta de novo dentro de 20 s se o par fechar na hora).
+- `max_datagram_size` em loopback: 1414 B desde o início (descoberta de MTU não atrasou). **Não vale para internet
+  nem para relay**: a etapa 3 mede por caminho; o RTP do libwebrtc tem até ~1200 B + SRTP + 1 B de quadro.
+- Guarda-corpo Android: `cargo check -p enxame-core --target aarch64-linux-android` passa com `turn`/`ring`.
+- `cargo clippy --workspace --all-targets -- -D warnings` e `cargo fmt --check` limpos.
+- Não feito aqui: `cargo deny` (não está instalado nesta máquina; rodar na CI/antes de fechar o 7.2: `turn` traz
+  `ring`, `md-5`, `webrtc-util`); mídia real do libwebrtc passando pela ponte (etapa 4).

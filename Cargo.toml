@@ -22,6 +22,11 @@ iroh = { version = "=1.4.1", features = ["unstable-net-report"] } # net_report: 
 iroh-mdns-address-lookup = "=0.6.1" # discovery em LAN; requer iroh ^1.0.0
 # Fase 4; requer iroh ^1.0.0. docs.rs avisa "not yet production quality".
 iroh-blobs = "=0.103.1"
+# Fase 7.2 (ADR 0015): TURN local em loopback sobre datagramas do iroh. Versões verificadas na
+# crates.io em 2026-10-26; `turn` 0.17.x depende de `webrtc-util` ^0.17.1.
+turn = "=0.17.2"
+webrtc-util = { version = "=0.17.1", default-features = false, features = ["conn", "vnet"] }
+async-trait = "0.1"
 
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }

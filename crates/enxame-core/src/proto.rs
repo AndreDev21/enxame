@@ -18,6 +18,11 @@ pub const ALPN_SYNC: &[u8] = b"enxame/sync/1";
 pub const ALPN_CARRY: &[u8] = b"enxame/carry/1";
 /// ALPN da sinalização de chamadas (spec 13/Fase 6, ADR 0012). Apenas contatos mútuos.
 pub const ALPN_CALL: &[u8] = b"enxame/call/1";
+/// ALPN da ponte de mídia das chamadas (Fase 7.2, ADR 0015): uma conexão por chamada, só datagramas.
+/// Apenas contatos mútuos.
+pub const ALPN_MEDIA: &[u8] = b"enxame/media/1";
+/// Versão do quadro de datagrama de `enxame/media/1`.
+pub const MEDIA_FRAME_V1: u8 = 1;
 /// Versões de protocolo que este build entende, da mais nova para a mais antiga.
 pub const SUPPORTED_VERSIONS: &[u8] = &[crate::PROTOCOL_VERSION];
 
@@ -203,6 +208,22 @@ where
     Ok(postcard::from_bytes(&body)?)
 }
 
+/// Quadro de `enxame/media/1`: `[versão u8][datagrama UDP do TURN local, sem alteração]`.
+pub fn encode_media_datagram(payload: &[u8]) -> bytes::Bytes {
+    let mut v = Vec::with_capacity(1 + payload.len());
+    v.push(MEDIA_FRAME_V1);
+    v.extend_from_slice(payload);
+    v.into()
+}
+
+/// Carga de um quadro de mídia, ou `None` se a versão é desconhecida ou o quadro está vazio.
+pub fn decode_media_datagram(data: &[u8]) -> Option<&[u8]> {
+    match data.split_first() {
+        Some((&MEDIA_FRAME_V1, payload)) => Some(payload),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,5 +380,15 @@ mod tests {
         data.extend_from_slice(&[0xff, 0xff, 0xff]);
         let r: Result<Hello> = read_frame(&mut data.as_slice(), 1024).await;
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn media_datagram_roundtrip_and_rejects_unknown_versions() {
+        proptest::proptest!(|(payload in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..1500))| {
+            let frame = encode_media_datagram(&payload);
+            proptest::prop_assert_eq!(decode_media_datagram(&frame), Some(payload.as_slice()));
+        });
+        assert_eq!(decode_media_datagram(&[]), None);
+        assert_eq!(decode_media_datagram(&[2, 1, 2, 3]), None);
     }
 }

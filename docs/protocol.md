@@ -224,3 +224,17 @@ O envelope é `kind = CallSignal`, com `conversation_id` 1:1, sem `parents`, **u
 contato) e conteúdo de 1 a 64 KiB (JSON do app: `invite`, `accept`, `reject`, `busy`, `offer`,
 `answer`, `ice`, `swap`, `hangup`; todo sinal da conexão leva `a`, o número da tentativa, 0 ou 1; `invite` e `accept` levam ainda `cg` e `v6`, 0 ou 1: "provavelmente atrás de CGNAT" e "tem IPv6 global", dicas opcionais que um app antigo ignora). Validação: id/assinatura, autor = o par, carimbo a ±24 h do relógio de parede, o mesmo limite das mensagens (o remetente usa `Hlc::new(agora, 0)`, nunca o HLC lógico; o receptor não o incorpora ao seu), id inédito
 (memória dos 10 000 ids mais recentes) e ≤ 200 sinais por contato a cada 10 s. Não é gravado no banco nem sincronizado.
+
+## Fase 7.2 — ponte de mídia (ADR 0015)
+
+### `enxame/media/1`
+Uma conexão QUIC por chamada entre contatos mútuos, **só com datagramas** (nenhum stream). O chamador
+disca assim que o app pede a ponte; o atendente precisa ter pedido a ponte antes (o nó recusa com o
+código 404 se ninguém espera, e com 403 se o par não é contato mútuo). Quadro de cada datagrama:
+`[versão u8 = 1][datagrama UDP do TURN local, sem alteração]`; versão desconhecida é descartada e contada.
+O tamanho do quadro é limitado por `Connection::max_datagram_size()` do caminho atual (em loopback: 1414 B);
+pacotes que não cabem são descartados e contados (`dropped_too_large`); a fragmentação, se precisar, é a etapa 3.
+
+O TURN local escuta só em `127.0.0.1` (porta efêmera), com usuário e senha aleatórios por chamada. Cada lado
+anuncia um relay virtual fixo (`198.18.0.1:40000` para quem chamou, `198.18.0.2:40000` para quem atendeu);
+só a primeira alocação do cliente WebRTC é aceita e só o endereço virtual do par é entregue.
