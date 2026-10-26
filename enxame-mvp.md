@@ -511,7 +511,7 @@ Substitui o antigo "TURN próprio": nada que o projeto hospede. Detalhe completo
 2. **Licença:** recomendação AGPL-3.0 para o projeto inteiro (impede fork fechado oferecido como serviço, como em Signal e Element). Alternativa: MIT/Apache-2.0 dual no `enxame-core` para maximizar adoção como biblioteca, AGPL no app.
 3. Reconciliação por HLC (MVP) vs RBSR.
 4. Formato de cifragem em streaming de arquivos.
-5. **Decidida (2026-10-24, ADR 0015 a abrir):** sem TURN hospedado pelo projeto. Mídia sobre o iroh com relays de amigos e pool comunitário com confiança local; relays públicos do n0 só como último degrau, apenas voz (limitam a banda, ~1 MB/s em campo). Ver Fase 7. Na Fase 6 segue STUN público + inversão de papéis.
+5. **Decidida (2026-10-24, ADR 0015):** sem TURN hospedado pelo projeto. Mídia sobre o iroh com relays de amigos e pool comunitário com confiança local; relays públicos do n0 só como último degrau, apenas voz (limitam a banda, ~1 MB/s em campo). Ver Fase 7. Na Fase 6 segue STUN público + inversão de papéis.
 6. Caminho para MLS (`openmls`) e multi-dispositivo (S2 e S4 do roadmap: avaliar `vodozemac` para 1:1 e `openmls` para grupos).
 7. Empacotamento e distribuição desktop (AppImage/Flatpak/AUR no Linux; MSIX vs Inno Setup no Windows).
 8. **Relay padrão** — decidido no ADR 0008: relays públicos do iroh por padrão; relay próprio opcional. Reabrir se o iroh/n0 mudar as condições dos relays públicos, ou se o projeto decidir operar um relay oficial.

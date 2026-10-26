@@ -89,7 +89,7 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
    degrau (lan/ipv6/ipv4Direct/relay), NAT inferido, UPnP (SSDP), tempo até conectar, RTT, perda, trocas de
    caminho. Exportação opt-in em Diagnóstico; relatório por degrau: `scripts/field/metrics_report.py`.
    1ª medição (`reports/fase7-medicao-1.md`): 4/4 conectaram em Wi-Fi e hotspot 5G de uma operadora. Falta: rodar a matriz de 5–10 redes reais e aplicar a regra de decisão (alcançáveis >= ~20% → 7.5);
-   NAT-PMP/PCP não são medidos; ADR 0015 ainda a abrir.
+   NAT-PMP/PCP não são medidos. **ADR 0015 aberto e plano do 7.2 escrito** (`adr/0015-…`, `plano-fase7-2-midia-sobre-iroh.md`); próximo: etapa 1 (spike: o libwebrtc aceita TURN em loopback?).
    **Campo 2026-10-26 (`4d7f518`):** mesma Wi-Fi (Windows ↔ Linux, identidades de teste), nos dois sentidos:
    conectou em ~0,5 s, sem `swap`, par host/host. Notebook no hotspot 5G (POCO, IPv6 global no Windows, nenhum no
    Linux): 4 chamadas, nenhuma abriu caminho direto em nenhuma ordem (a inversão de papéis funciona nos dois
