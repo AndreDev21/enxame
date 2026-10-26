@@ -289,5 +289,24 @@
         "type": "String"
       }
     }
+  },
+  "metricsTitle": "Call measurements",
+  "metricsInfo": "{count} connections recorded on this computer. Records contain no IPs, names or content; only path type, time to connect and quality. Nothing is sent: exporting writes a file you choose whether to share.",
+  "metricsExport": "Export measurements",
+  "metricsExported": "File saved to {path}",
+  "metricsNone": "No connections recorded yet.",
+  "@metricsInfo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@metricsExported": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
   }
 }

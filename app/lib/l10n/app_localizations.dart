@@ -954,6 +954,36 @@ abstract class L {
   /// In pt, this message translates to:
   /// **'Chamada encerrada'**
   String get callEndedPlain;
+
+  /// No description provided for @metricsTitle.
+  ///
+  /// In pt, this message translates to:
+  /// **'Medição de chamadas'**
+  String get metricsTitle;
+
+  /// No description provided for @metricsInfo.
+  ///
+  /// In pt, this message translates to:
+  /// **'{count} conexões registradas neste computador. Os registros não têm IPs, nomes nem conteúdo; só o tipo de caminho, o tempo para conectar e a qualidade. Nada é enviado: exportar gera um arquivo que você decide se envia.'**
+  String metricsInfo(int count);
+
+  /// No description provided for @metricsExport.
+  ///
+  /// In pt, this message translates to:
+  /// **'Exportar medições'**
+  String get metricsExport;
+
+  /// No description provided for @metricsExported.
+  ///
+  /// In pt, this message translates to:
+  /// **'Arquivo salvo em {path}'**
+  String metricsExported(String path);
+
+  /// No description provided for @metricsNone.
+  ///
+  /// In pt, this message translates to:
+  /// **'Nenhuma conexão registrada ainda.'**
+  String get metricsNone;
 }
 
 class _LDelegate extends LocalizationsDelegate<L> {

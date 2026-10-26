@@ -5,6 +5,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:enxame_app/src/callmetrics.dart';
 import 'package:enxame_app/src/calls.dart';
 import 'package:enxame_app/src/device_media.dart';
 import 'package:enxame_app/src/netprobe.dart';
@@ -184,6 +185,40 @@ void main() {
       expect(wb.sent.firstWhere((m) => m['t'] == 'accept')['cg'], 1);
     },
   );
+
+  testWidgets('a conexão deixa um registro de medição sem IPs (Fase 7.1)', (
+    tester,
+  ) async {
+    final dir = Directory.systemTemp.createTempSync('enxame-metrics-it');
+    final log = CallMetricsLog(File('${dir.path}/m.jsonl'));
+    a.metrics = log;
+    await a.call('B', 'Pessoa B', CallKind.screen);
+    await until(() => b.phase == CallPhase.incoming);
+    await b.accept();
+    await until(
+      () => a.phase == CallPhase.connected && b.phase == CallPhase.connected,
+      why: 'conectou: A=${a.phase} (${a.endedReason}) B=${b.phase}',
+    );
+    await Future<void>.delayed(
+      const Duration(seconds: 2),
+    ); // dá tempo da 1ª amostra
+    await a.hangup();
+    final rows = log.read();
+    expect(rows, hasLength(1));
+    final r = rows.single;
+    expect(r['outcome'], 'connected');
+    expect(r['role'], 'caller');
+    expect(r['attempts'], 1);
+    expect(r['swapped'], false);
+    expect(r['ms_to_connect'], isA<int>());
+    expect(
+      r['ladder'],
+      isNot('none'),
+      reason: 'o par escolhido foi medido: $r',
+    );
+    final raw = File('${dir.path}/m.jsonl').readAsStringSync();
+    expect(RegExp(r'\d+\.\d+\.\d+\.\d+').hasMatch(raw), isFalse, reason: raw);
+  });
 
   testWidgets(
     'sem caminho: a mensagem final diz a causa provável (as duas pontas em CGNAT)',

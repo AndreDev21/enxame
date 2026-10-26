@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import 'callmetrics.dart';
 import 'netprobe.dart';
 
 /// Tipo da chamada: o que o **chamador** envia. Em `screen` só o chamador transmite a tela.
@@ -90,6 +91,55 @@ class CallController extends ChangeNotifier {
 
   bool _calleeOffersFor(String peerFp, {required bool iAmCaller}) =>
       _rememberedCalleeOffers(peerFp, iAmCaller: iAmCaller) ?? false;
+
+  /// Registro local de cada conexão (Fase 7.1); `null` desliga a medição (testes).
+  CallMetricsLog? metrics;
+  Stopwatch? _connectWatch; // desde que a chamada foi aceita até conectar
+  Stopwatch? _connectedWatch; // desde que conectou
+  int? _msToConnect;
+  PathSampler _sampler = PathSampler();
+
+  List<StatItem> _items(List<StatsReport> s) => [
+    for (final r in s) (id: r.id, type: r.type, values: r.values),
+  ];
+
+  /// Fecha a medição desta chamada e a grava. Só conta chamadas que chegaram a tentar conectar.
+  Future<void> _recordMetrics(String reason) async {
+    final log = metrics;
+    final watch = _connectWatch;
+    if (log == null || watch == null || kind == null) return;
+    final connected = phase == CallPhase.connected;
+    try {
+      if (_pc != null) {
+        _sampler.sample(
+          _items(await stats_().timeout(const Duration(seconds: 1))),
+        );
+      }
+    } catch (_) {}
+    await warmUp(wait: const Duration(milliseconds: 200));
+    final outcome = connected
+        ? 'connected'
+        : (reason == 'encerrada' ? 'cancelled' : 'failed');
+    log.append(
+      CallRecord(
+        hour: DateTime.now().toUtc().toIso8601String().substring(0, 13),
+        os: Platform.operatingSystem,
+        kind: kind!.name,
+        caller: _caller,
+        outcome: outcome,
+        attempts: _attempt + 1,
+        swapped: _attempt > 0,
+        msToConnect: _msToConnect,
+        seconds: (connected ? _connectedWatch?.elapsed.inSeconds : null) ?? 0,
+        failClass: outcome == 'failed' ? failClass(reason) : null,
+        sampler: _sampler,
+        net: netProbe == null ? const {} : _mine.toJson(),
+        peer: netProbe == null
+            ? const {}
+            : {'cgnat': _peerCgnat, 'v6': _peerV6},
+      ),
+    );
+  }
 
   /// Mede a rede deste lado (CGNAT, IPv6). `null` desliga a estimativa (testes).
   final Future<NetHint> Function()? netProbe;
@@ -258,7 +308,8 @@ class CallController extends ChangeNotifier {
     _timer = Timer(_ringTimeout, () => _end('sem resposta', notify: true));
     final callId = _id;
     await warmUp();
-    if (phase != CallPhase.outgoing || _id != callId) return; // cancelou enquanto media
+    // Cancelou enquanto media.
+    if (phase != CallPhase.outgoing || _id != callId) return;
     // Já se sabe que com este contato só conecta se quem atende oferecer: pede isso no convite.
     if (_calleeOffersFor(peerFp, iAmCaller: true)) {
       _calleeOfferedFirst = true;
@@ -282,13 +333,15 @@ class CallController extends ChangeNotifier {
     if (phase != CallPhase.incoming) return;
     _timer?.cancel();
     phase = CallPhase.connecting;
+    _connectWatch = Stopwatch()..start();
     notifyListeners();
     _timer = Timer(
       _attemptTimeout(),
       () => _onConnectFailed('a conexão não abriu'),
     );
     await warmUp();
-    if (phase != CallPhase.connecting) return; // o outro lado desligou enquanto media
+    // O outro lado desligou enquanto media.
+    if (phase != CallPhase.connecting) return;
     // Memória do que funcionou com este contato; sem ela, quem está atrás de CGNAT envia
     // primeiro (o CGNAT só deixa passar o que responde a algo que ele mesmo enviou). Com IPv6
     // global nas duas pontas não há NAT no caminho, e a ordem padrão serve.
@@ -297,7 +350,9 @@ class CallController extends ChangeNotifier {
     final byNet = _mine.cgnat && !_peerCgnat && !bothV6;
     if (remembered ?? byNet) {
       if (remembered == null) {
-        _log('este lado está atrás de CGNAT e o outro não: atendente oferece primeiro');
+        _log(
+          'este lado está atrás de CGNAT e o outro não: atendente oferece primeiro',
+        );
       }
       _calleeOfferedFirst = true;
     }
@@ -415,6 +470,7 @@ class CallController extends ChangeNotifier {
       );
       try {
         final stats = await stats_();
+        _sampler.sample(_items(stats));
         final byId = {for (final r in stats) r.id: r};
         String cand(Object? id) {
           final c = byId[id];
@@ -494,7 +550,9 @@ class CallController extends ChangeNotifier {
     _statsTimer?.cancel();
     _statsTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
       try {
-        for (final r in await stats_()) {
+        final all = await stats_();
+        _sampler.sample(_items(all));
+        for (final r in all) {
           final kindV = r.values['kind'] ?? r.values['mediaType'];
           if (kindV != 'video') continue;
           if (r.type == 'outbound-rtp') {
@@ -559,6 +617,7 @@ class CallController extends ChangeNotifier {
         if (_caller && phase == CallPhase.outgoing) {
           _timer?.cancel();
           phase = CallPhase.connecting;
+          _connectWatch = Stopwatch()..start();
           _timer = Timer(
             _attemptTimeout(),
             () => _onConnectFailed('a conexão não abriu'),
@@ -613,6 +672,9 @@ class CallController extends ChangeNotifier {
     _calleeOfferedFirst = false;
     _peerCgnat = false;
     _peerV6 = false;
+    _connectWatch = _connectedWatch = null;
+    _msToConnect = null;
+    _sampler = PathSampler();
     _attempt = 0;
     retrying = false;
     _id = id;
@@ -662,7 +724,8 @@ class CallController extends ChangeNotifier {
     pc.onIceGatheringState = (s) => _log('ICE gathering: $s');
     pc.onIceConnectionState = (s) => _log('ICE connection: $s');
     pc.onSignalingState = (s) => _log('signaling: $s');
-    RTCPeerConnectionState? latest; // o plugin nem sempre preenche `pc.connectionState`
+    RTCPeerConnectionState?
+    latest; // o plugin nem sempre preenche `pc.connectionState`
     pc.onConnectionState = (s) {
       latest = s;
       _log('connection: $s');
@@ -671,6 +734,8 @@ class CallController extends ChangeNotifier {
         _timer?.cancel();
         retrying = false;
         _rememberRole();
+        _msToConnect = _connectWatch?.elapsedMilliseconds;
+        _connectedWatch = Stopwatch()..start();
         phase = CallPhase.connected;
         notifyListeners();
         unawaited(_logSelectedPair());
@@ -1087,6 +1152,7 @@ class CallController extends ChangeNotifier {
     _log('encerrando a chamada: $reason');
     _timer?.cancel();
     _statsTimer?.cancel();
+    await _recordMetrics(reason);
     final pc = _pc;
     _pc = null;
     for (final s in [_mic, _screen]) {

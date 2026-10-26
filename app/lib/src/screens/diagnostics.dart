@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../callmetrics.dart';
 import '../rust/api/app.dart' as api;
 import '../rust/api/app.dart';
 
@@ -16,6 +19,19 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   DiagInfo? _info;
   bool _running = false;
   String? _error;
+  String? _exported;
+
+  CallMetricsLog get _metrics => CallMetricsLog(
+    File('${api.dataDir()}${Platform.pathSeparator}call_metrics.jsonl'),
+  );
+
+  void _export() {
+    final out = File(
+      '${api.dataDir()}${Platform.pathSeparator}call_metrics_export.json',
+    );
+    _metrics.exportAnonymized(out);
+    setState(() => _exported = out.path);
+  }
 
   Future<void> _run() async {
     setState(() {
@@ -111,6 +127,28 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                       : '${l.unreachable}: ${p.error}',
                 ),
               ),
+        ],
+        const SizedBox(height: 24),
+        Text(l.metricsTitle, style: t.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Builder(
+          builder: (_) {
+            final n = _metrics.read().length;
+            return Text(n == 0 ? l.metricsNone : l.metricsInfo(n));
+          },
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: _export,
+            icon: const Icon(Icons.file_download_outlined),
+            label: Text(l.metricsExport),
+          ),
+        ),
+        if (_exported != null) ...[
+          const SizedBox(height: 8),
+          SelectableText(l.metricsExported(_exported!)),
         ],
       ],
     );

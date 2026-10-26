@@ -493,4 +493,23 @@ class LEn extends L {
 
   @override
   String get callEndedPlain => 'Call ended';
+
+  @override
+  String get metricsTitle => 'Call measurements';
+
+  @override
+  String metricsInfo(int count) {
+    return '$count connections recorded on this computer. Records contain no IPs, names or content; only path type, time to connect and quality. Nothing is sent: exporting writes a file you choose whether to share.';
+  }
+
+  @override
+  String get metricsExport => 'Export measurements';
+
+  @override
+  String metricsExported(String path) {
+    return 'File saved to $path';
+  }
+
+  @override
+  String get metricsNone => 'No connections recorded yet.';
 }

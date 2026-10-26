@@ -6,7 +6,13 @@ import 'dart:typed_data';
 /// O que se sabe da rede deste lado antes de ligar (Fase 7.0). `cgnat` é uma estimativa: serve só
 /// para escolher quem oferece primeiro, e a inversão de papéis segue de rede de segurança.
 class NetHint {
-  const NetHint({this.cgnat = false, this.v6 = false, this.why = ''});
+  const NetHint({
+    this.cgnat = false,
+    this.v6 = false,
+    this.why = '',
+    this.nat = 'unknown',
+    this.igd = false,
+  });
 
   /// Provavelmente atrás de NAT de operadora (CGNAT, rede móvel ou hotspot).
   final bool cgnat;
@@ -16,6 +22,23 @@ class NetHint {
 
   /// Motivo da estimativa, para o log.
   final String why;
+
+  /// Classe do NAT, para a medição (Fase 7.1): `public`, `cone`, `symmetric`, `cgnat`, `hotspot`
+  /// ou `unknown`. Sem IPs.
+  final String nat;
+
+  /// O roteador respondeu ao SSDP como gateway UPnP (dá para abrir porta; Fase 7.3).
+  final bool igd;
+
+  Map<String, Object?> toJson() => {
+    'nat': nat,
+    'cgnat': cgnat,
+    'v6': v6,
+    'igd': igd,
+  };
+
+  NetHint withIgd(bool v) =>
+      NetHint(cgnat: cgnat, v6: v6, why: why, nat: nat, igd: v);
 
   @override
   String toString() => 'cgnat=$cgnat v6=$v6 ($why)';
@@ -102,26 +125,42 @@ NetHint classifyNat({
       cgnat: hotspot,
       v6: v6,
       why: hotspot ? 'hotspot, STUN sem resposta' : 'STUN sem resposta',
+      nat: hotspot ? 'hotspot' : 'unknown',
     );
   }
   final ip = mapped.first.ip;
   if (isCgnatRange(ip)) {
-    return NetHint(cgnat: true, v6: v6, why: 'IP público $ip em 100.64/10');
+    return NetHint(
+      cgnat: true,
+      v6: v6,
+      why: 'IP público $ip em 100.64/10',
+      nat: 'cgnat',
+    );
   }
   if (mapped.map((m) => m.port).toSet().length > 1) {
     return NetHint(
       cgnat: true,
       v6: v6,
       why: 'NAT simétrico (a porta muda por destino)',
+      nat: 'symmetric',
     );
   }
   if (localIps.contains(ip)) {
-    return NetHint(v6: v6, why: 'IP público direto na interface');
+    return NetHint(
+      v6: v6,
+      why: 'IP público direto na interface',
+      nat: 'public',
+    );
   }
   if (hotspot) {
-    return NetHint(cgnat: true, v6: v6, why: 'compartilhamento do celular');
+    return NetHint(
+      cgnat: true,
+      v6: v6,
+      why: 'compartilhamento do celular',
+      nat: 'hotspot',
+    );
   }
-  return NetHint(v6: v6, why: 'NAT comum (roteador)');
+  return NetHint(v6: v6, why: 'NAT comum (roteador)', nat: 'cone');
 }
 
 /// Sonda de rede: dois pedidos STUN pelo mesmo socket UDP (sem libwebrtc) e as interfaces locais.
@@ -149,11 +188,16 @@ class NetProbe {
         for (final a in addrs)
           if (a.type == InternetAddressType.IPv4 && !a.isLoopback) a.address,
       };
-      final mapped = await _stun();
       final hint = classifyNat(
-        mapped: mapped,
+        mapped: await _stun(),
         localIps: local,
         v6: addrs.any(isGlobalIpv6),
+      );
+      // O SSDP leva até ~1 s (MX): não segura a chamada; o resultado entra no cache quando chegar.
+      unawaited(
+        _ssdp().then((ok) {
+          if (ok && identical(_cached, hint)) _cached = hint.withIgd(true);
+        }),
       );
       _cached = hint;
       _key = key;
@@ -161,6 +205,37 @@ class NetProbe {
       return hint;
     } catch (e) {
       return NetHint(why: 'sonda falhou: $e');
+    }
+  }
+
+  /// Procura um gateway UPnP (SSDP, multicast): só diz se existe, não abre nenhuma porta.
+  Future<bool> _ssdp() async {
+    RawDatagramSocket? socket;
+    try {
+      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      final found = Completer<bool>();
+      socket.listen((e) {
+        if (e != RawSocketEvent.read) return;
+        final d = socket!.receive();
+        if (d == null) return;
+        if (String.fromCharCodes(d.data).contains('InternetGatewayDevice') &&
+            !found.isCompleted) {
+          found.complete(true);
+        }
+      });
+      const msg =
+          'M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n'
+          'MAN: "ssdp:discover"\r\nMX: 1\r\n'
+          'ST: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n\r\n';
+      socket.send(msg.codeUnits, InternetAddress('239.255.255.250'), 1900);
+      return await found.future.timeout(
+        const Duration(milliseconds: 1500),
+        onTimeout: () => false,
+      );
+    } catch (_) {
+      return false;
+    } finally {
+      socket?.close();
     }
   }
 

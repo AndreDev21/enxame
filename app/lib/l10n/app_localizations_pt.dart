@@ -495,4 +495,23 @@ class LPt extends L {
 
   @override
   String get callEndedPlain => 'Chamada encerrada';
+
+  @override
+  String get metricsTitle => 'Medição de chamadas';
+
+  @override
+  String metricsInfo(int count) {
+    return '$count conexões registradas neste computador. Os registros não têm IPs, nomes nem conteúdo; só o tipo de caminho, o tempo para conectar e a qualidade. Nada é enviado: exportar gera um arquivo que você decide se envia.';
+  }
+
+  @override
+  String get metricsExport => 'Exportar medições';
+
+  @override
+  String metricsExported(String path) {
+    return 'Arquivo salvo em $path';
+  }
+
+  @override
+  String get metricsNone => 'Nenhuma conexão registrada ainda.';
 }

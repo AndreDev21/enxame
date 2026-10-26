@@ -289,5 +289,24 @@
       }
     }
   },
-  "callEndedPlain": "Chamada encerrada"
+  "callEndedPlain": "Chamada encerrada",
+  "metricsTitle": "Medição de chamadas",
+  "metricsInfo": "{count} conexões registradas neste computador. Os registros não têm IPs, nomes nem conteúdo; só o tipo de caminho, o tempo para conectar e a qualidade. Nada é enviado: exportar gera um arquivo que você decide se envia.",
+  "metricsExport": "Exportar medições",
+  "metricsExported": "Arquivo salvo em {path}",
+  "metricsNone": "Nenhuma conexão registrada ainda.",
+  "@metricsInfo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@metricsExported": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  }
 }

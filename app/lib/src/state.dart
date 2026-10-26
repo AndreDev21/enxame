@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'calls.dart';
+import 'callmetrics.dart';
 import 'device_media.dart';
 import 'netprobe.dart';
 import 'rust/api/app.dart' as api;
@@ -99,6 +100,9 @@ class AppState extends ChangeNotifier {
   Future<void> start({String? displayName}) async {
     me = await api.startNode(displayName: displayName);
     calls.logFile = File('${api.dataDir()}${Platform.pathSeparator}calls.log');
+    calls.metrics = CallMetricsLog(
+      File('${api.dataDir()}${Platform.pathSeparator}call_metrics.jsonl'),
+    );
     unawaited(calls.warmUp(wait: Duration.zero));
     calls.rolesFile = File(
       '${api.dataDir()}${Platform.pathSeparator}call_roles.json',

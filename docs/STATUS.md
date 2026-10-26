@@ -84,6 +84,12 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
    **7.0 implementado (2026-10-26), falta validar no campo:** prazo de 7 s, mensagem de falha com causa,
    detecção de CGNAT por STUN (`app/lib/src/netprobe.dart`, ADR 0012) para começar pela ordem certa, `v6`
    na sinalização. Testes: `app/test/netprobe_test.dart` e dois casos novos em `integration_test/call_test.dart`.
+   **7.1 implementado (2026-10-26), falta a matriz de campo:** cada conexão grava um registro local sem IPs
+   (`app/lib/src/callmetrics.dart`, `<dados>/call_metrics.jsonl`; esquema em `docs/metricas-chamadas.md`):
+   degrau (lan/ipv6/ipv4Direct/relay), NAT inferido, UPnP (SSDP), tempo até conectar, RTT, perda, trocas de
+   caminho. Exportação opt-in em Diagnóstico; relatório por degrau: `scripts/field/metrics_report.py`.
+   Falta: rodar a matriz de 5–10 redes reais e aplicar a regra de decisão (alcançáveis >= ~20% → 7.5);
+   NAT-PMP/PCP não são medidos; ADR 0015 ainda a abrir.
    **Campo 2026-10-26 (`4d7f518`):** mesma Wi-Fi (Windows ↔ Linux, identidades de teste), nos dois sentidos:
    conectou em ~0,5 s, sem `swap`, par host/host. Notebook no hotspot 5G (POCO, IPv6 global no Windows, nenhum no
    Linux): 4 chamadas, nenhuma abriu caminho direto em nenhuma ordem (a inversão de papéis funciona nos dois
