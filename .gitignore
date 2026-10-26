@@ -4,3 +4,4 @@
 .env
 /deploy/certs/*
 !/deploy/certs/.gitkeep
+/scripts/spike/*/target

@@ -1,0 +1,17 @@
+# Spike do bloco 7.2 (etapa 1): TURN local em loopback cujo "relay" liga dois lados no mesmo processo,
+# sem iroh. Responde: o libwebrtc aceita um servidor TURN em 127.0.0.1 e conecta só por candidatos
+# `relay` com endereços virtuais? Fora do workspace de propósito (não entra no build do núcleo).
+[package]
+name = "turn-loopback-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+turn = "=0.17.2"
+webrtc-util = { version = "=0.17.1", default-features = false, features = ["conn", "vnet"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "io-util", "io-std", "time"] }
+async-trait = "0.1"
+rand = "0.9"

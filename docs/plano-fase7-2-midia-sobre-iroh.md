@@ -48,7 +48,7 @@ libwebrtc ──UDP── 127.0.0.1:P (TURN local, crate turn) ── Conn próp
 
 | # | Etapa | Saída |
 |---|---|---|
-| 1 | **Spike do libwebrtc:** `turn` em `127.0.0.1` com `RelayAddressGenerator` que faz eco entre dois peers no mesmo processo (sem iroh) | `integration_test` Linux: duas conexões WebRTC conectam **só** por candidatos `relay` (filtrando host/srflx) e trocam áudio. Responde a incógnita "o libwebrtc aceita TURN em loopback?" |
+| 1 ✅ | **Spike do libwebrtc (feito em 2026-10-26, ver abaixo):** `turn` em `127.0.0.1` com `RelayAddressGenerator` que faz eco entre dois peers no mesmo processo (sem iroh) | `integration_test` Linux: duas conexões WebRTC conectam **só** por candidatos `relay` (filtrando host/srflx) e trocam áudio. Responde a incógnita "o libwebrtc aceita TURN em loopback?" |
 | 2 | **Ponte sobre o iroh:** ALPN `enxame/media/1`, `Conn` com datagramas, endereços virtuais | Teste em `crates/enxame-core/tests/media.rs`: dois nós in-process, pacotes UDP de 1200 B ida e volta; `proptest` do quadro; contagem de descartes |
 | 3 | **MTU:** medir `max_datagram_size` por caminho (direto, relay local do netsim); se o RTP não couber, fragmentar com `[idx][total]` | Tabela de tamanhos no relatório; nenhum pacote descartado por tamanho |
 | 4 | **Integração no app:** FFI, `iceServers`, política da 1ª tentativa, mensagens e métricas (`ladder: relay`, caminho do iroh) | `call_test` com os dois controladores usando a ponte: conecta com `dropAllIce` nos candidatos diretos |
@@ -70,3 +70,24 @@ libwebrtc ──UDP── 127.0.0.1:P (TURN local, crate turn) ── Conn próp
 
 Relay de amigo no `enxame-node` e no desktop (7.4), protocolo `enxame/relay/1` e pool (7.5), n0 como último
 degrau (7.6), incentivo (7.7) e chamada protegida (7.8).
+
+## Resultado da etapa 1 (spike, 2026-10-26)
+
+Código: `scripts/spike/turn-loopback` (crate fora do workspace, `turn` 0.17.2) e
+`app/integration_test/turn_loopback_test.dart` (`flutter test integration_test/turn_loopback_test.dart -d linux`).
+Dois servidores TURN em `127.0.0.1` cujo relay entrega os pacotes de um lado ao outro em memória, com os
+endereços virtuais `198.18.0.1:40000` e `198.18.0.2:40000`; duas conexões WebRTC (`flutter_webrtc`, libwebrtc).
+
+- **O libwebrtc aceita um servidor TURN em loopback** e anuncia o endereço virtual como candidato `relay`.
+  Com `iceTransportPolicy: relay` (nenhum caminho real permitido) as duas conexões abrem o canal de dados em
+  cerca de 1 s e trocam mensagem; o par nomeado é `relay/relay`. A incógnita principal do 7.2 está resolvida
+  a favor da abordagem; o plano B (reescrever candidatos ICE) fica de reserva.
+- **O libwebrtc pede uma alocação por interface de rede** (12 por lado nesta máquina, com as pontes do Docker). Com
+  todas aceitas, todas anunciam o mesmo endereço virtual e a entrega fica ambígua. Recusar as extras
+  (primeira alocação vale, as seguintes dão erro) deixa **um** candidato `relay` por lado e a conexão continua
+  abrindo. Decisão para a etapa 2: uma alocação por chamada.
+- **Com candidatos diretos disponíveis** (`iceTransportPolicy: all`) o par nomeado termina `host/host`; o relay
+  fica só como reserva, como a escada de conexão pede.
+- **Ainda não testado:** mídia de verdade (áudio/vídeo) pelo relay, só o canal de dados (mesmo transporte
+  DTLS); troca relay → direto no meio de uma chamada; MTU (o spike entrega em memória, sem limite de datagrama);
+  o `Conn` sobre iroh (etapa 2).

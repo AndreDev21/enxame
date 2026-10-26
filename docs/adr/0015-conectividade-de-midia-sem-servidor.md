@@ -67,8 +67,8 @@ Resumo de `docs/estudo-conectividade-sem-servidor.md` (3.1–3.10):
   `turn`, via `ring`/`md-5`). É aceitável só porque o servidor escuta **somente loopback**, em porta efêmera,
   com usuário e senha aleatórios por chamada; ainda assim fica registrado como exceção à regra "só crates
   auditadas da seção 5" e precisa de revisão.
-- **Incógnitas** (todas verificadas no protótipo do 7.2): se o libwebrtc aceita um servidor TURN em
-  `127.0.0.1`; se o RTP cabe no `max_datagram_size` do caminho (se não, fragmentar); a interação entre o
+- **Incógnitas** (verificadas no protótipo do 7.2): ~~se o libwebrtc aceita um servidor TURN em
+  `127.0.0.1`~~ (resolvida em 2026-10-26: aceita e conecta por `relay/relay`; ver o plano); se o RTP cabe no `max_datagram_size` do caminho (se não, fragmentar); a interação entre o
   controle de congestionamento do QUIC e o do WebRTC; o limite de banda dos relays do n0 (~1 MB/s medido em
   campo), por isso o último degrau é só voz.
 - **Mobile é restrição de projeto (D1):** o `crates/enxame-core` continua compilando para
