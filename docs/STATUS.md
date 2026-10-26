@@ -84,8 +84,13 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
    **7.0 implementado (2026-10-26), falta validar no campo:** prazo de 7 s, mensagem de falha com causa,
    detecção de CGNAT por STUN (`app/lib/src/netprobe.dart`, ADR 0012) para começar pela ordem certa, `v6`
    na sinalização. Testes: `app/test/netprobe_test.dart` e dois casos novos em `integration_test/call_test.dart`.
-   Campo: notebook em 4G/5G (hotspot do celular) ↔ PC em casa, lendo `calls.log` (linhas "rede deste lado" e
-   "par escolhido"); IPv6 não foi exercitado (esta máquina não tem IPv6 global).
+   **Campo 2026-10-26 (`4d7f518`):** mesma Wi-Fi (Windows ↔ Linux, identidades de teste), nos dois sentidos:
+   conectou em ~0,5 s, sem `swap`, par host/host. Notebook no hotspot 5G (POCO, IPv6 global no Windows, nenhum no
+   Linux): 4 chamadas, nenhuma abriu caminho direto em nenhuma ordem (a inversão de papéis funciona nos dois
+   lados; mensagem final nova). A sonda STUN respondeu `cgnat=false` no hotspot (NAT cone, IP fora de 100.64/10,
+   sub-rede 10.61.x): CGNAT cone não é detectável por STUN, só IP em 100.64/10, NAT simétrico ou sub-rede
+   conhecida de hotspot. Dois bugs achados e corrigidos no campo (`4d7f518`): `Failed` precoce do ICE disparava
+   o `swap` antes dos candidatos; `Concurrent modification` em `_flushIce`. IPv6 não foi exercitado.
    Próxima fase depois desta: Fase 7 (chamadas em grupo e TURN, stretch). — leia o princípio abaixo.
    **Roadmap decidido em 2026-10-24 (a executar no roadmap atual, ainda sem mudanças no app):**
    [`docs/roadmap-fase7-conformidade.md`](roadmap-fase7-conformidade.md) redefine a Fase 7 (conectividade
