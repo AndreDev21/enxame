@@ -50,6 +50,20 @@ void main() {
     expect(sel.rttMs, closeTo(4, 1e-9));
   });
 
+  test('prflx remoto sem endereço: LAN só com host privado e RTT baixo', () {
+    StatItem remote(String type) =>
+        (id: 'r', type: 'remote-candidate', values: {'candidateType': type});
+    Ladder of(String la, double rtt, {String lt = 'host'}) => selectedPath([
+      cand('l', lt, la),
+      remote('prflx'),
+      pair('l', 'r', rtt: rtt),
+    ])!.path.ladder;
+    expect(of('192.168.2.87', 0.006), Ladder.lan);
+    expect(of('192.168.2.87', 0.070), Ladder.ipv4Direct); // RTT de internet
+    expect(of('179.1.2.3', 0.006), Ladder.ipv4Direct); // este lado é público
+    expect(of('192.168.2.87', 0.006, lt: 'srflx'), Ladder.ipv4Direct);
+  });
+
   test('srflx/srflx IPv4 é direto; IPv6 tem degrau próprio; relay vence', () {
     Ladder of(String lt, String la, String rt, String ra) =>
         selectedPath([cand('l', lt, la), cand('r', rt, ra), pair('l', 'r')])!

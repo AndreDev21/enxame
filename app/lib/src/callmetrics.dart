@@ -35,6 +35,9 @@ class PathInfo {
   String get key => '$localType/$remoteType/${v6 ? 6 : 4}/$lan';
 }
 
+/// RTT abaixo do qual um par sem endereço remoto conhecido é tratado como LAN.
+const _lanRttMs = 30.0;
+
 bool isPrivateAddress(String ip) {
   if (ip.contains(':')) {
     final a = ip.toLowerCase();
@@ -77,18 +80,29 @@ typedef StatItem = ({String id, String type, Map<dynamic, dynamic> values});
   final l = addr(best.values['localCandidateId']);
   final r = addr(best.values['remoteCandidateId']);
   final rtt = best.values['currentRoundTripTime'];
+  final rttMs = rtt is num ? rtt * 1000.0 : null;
+  // O libwebrtc não informa o endereço de um candidato remoto `prflx` (campo vazio). Nesse caso é
+  // LAN se este lado é um `host` em rede privada e o RTT é de rede local (campo, 2026-10-26: 5-9 ms).
+  final localType = type(best.values['localCandidateId']);
+  final remoteUnknown =
+      r.isEmpty && type(best.values['remoteCandidateId']) == 'prflx';
+  final lan =
+      l.isNotEmpty &&
+      isPrivateAddress(l) &&
+      (r.isNotEmpty
+          ? isPrivateAddress(r)
+          : remoteUnknown &&
+                localType == 'host' &&
+                rttMs != null &&
+                rttMs < _lanRttMs);
   return (
     path: PathInfo(
-      localType: type(best.values['localCandidateId']),
+      localType: localType,
       remoteType: type(best.values['remoteCandidateId']),
       v6: l.contains(':') || r.contains(':'),
-      lan:
-          l.isNotEmpty &&
-          r.isNotEmpty &&
-          isPrivateAddress(l) &&
-          isPrivateAddress(r),
+      lan: lan,
     ),
-    rttMs: rtt is num ? rtt * 1000.0 : null,
+    rttMs: rttMs,
   );
 }
 
