@@ -48,6 +48,9 @@ const _connectTimeout = Duration(seconds: 25);
 /// Prazo da primeira tentativa: uma conexão que abre leva ~4 s; passando disso, inverte os papéis.
 const _firstAttemptTimeout = Duration(seconds: 7);
 
+/// Quanto o ICE pode ficar em `Failed` antes de a tentativa ser dada como perdida.
+const _failedGrace = Duration(seconds: 3);
+
 /// Uma chamada 1:1 por vez. Sinalização por mensagens JSON (`invite`, `accept`, `reject`, `busy`,
 /// `offer`, `answer`, `ice`, `hangup`); mídia por WebRTC (DTLS-SRTP).
 class CallController extends ChangeNotifier {
@@ -659,7 +662,9 @@ class CallController extends ChangeNotifier {
     pc.onIceGatheringState = (s) => _log('ICE gathering: $s');
     pc.onIceConnectionState = (s) => _log('ICE connection: $s');
     pc.onSignalingState = (s) => _log('signaling: $s');
+    RTCPeerConnectionState? latest; // o plugin nem sempre preenche `pc.connectionState`
     pc.onConnectionState = (s) {
+      latest = s;
       _log('connection: $s');
       if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected &&
           phase == CallPhase.connecting) {
@@ -672,7 +677,16 @@ class CallController extends ChangeNotifier {
         _startStatsLog();
         if (sharing) unawaited(_tuneScreenSender());
       } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        _onConnectFailed('a conexão falhou');
+        // `Failed` logo depois do `Checking` é comum enquanto os candidatos do outro lado ainda
+        // chegam (campo, 2026-10-26: 6 ms após a resposta, e o `swap` saiu antes do 1º candidato);
+        // o ICE se recupera quando chegam. Só vale se continuar falho depois de uma folga.
+        Timer(_failedGrace, () {
+          if (_pc == pc && phase == CallPhase.connecting) {
+            if (latest == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+              _onConnectFailed('a conexão falhou');
+            }
+          }
+        });
       }
     };
     return pc;
@@ -937,10 +951,13 @@ class CallController extends ChangeNotifier {
   }
 
   Future<void> _flushIce(RTCPeerConnection pc) async {
-    for (final c in _pendingIce) {
+    // Cópia: adicionar candidatos pode derrubar a conexão (e `_dropConnection` limpa a lista).
+    final pending = List.of(_pendingIce);
+    _pendingIce.clear();
+    for (final c in pending) {
+      if (_pc != pc) return;
       await pc.addCandidate(c);
     }
-    _pendingIce.clear();
   }
 
   Future<void> _send(Map<String, dynamic> msg) async {
