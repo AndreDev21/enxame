@@ -81,6 +81,11 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
      Ambiente de desenvolvimento no Windows: `docs/roteiros/windows-dev.md` (`flutter run -d windows`,
      logs em `%APPDATA%\enxame\calls.log`; falha nativa: `Get-WinEvent ... Id=1000`). O workflow
      `windows-dev.yml` (zip de teste) demorou o mesmo que a release: cache não ajudou.
+   **7.0 implementado (2026-10-26), falta validar no campo:** prazo de 7 s, mensagem de falha com causa,
+   detecção de CGNAT por STUN (`app/lib/src/netprobe.dart`, ADR 0012) para começar pela ordem certa, `v6`
+   na sinalização. Testes: `app/test/netprobe_test.dart` e dois casos novos em `integration_test/call_test.dart`.
+   Campo: notebook em 4G/5G (hotspot do celular) ↔ PC em casa, lendo `calls.log` (linhas "rede deste lado" e
+   "par escolhido"); IPv6 não foi exercitado (esta máquina não tem IPv6 global).
    Próxima fase depois desta: Fase 7 (chamadas em grupo e TURN, stretch). — leia o princípio abaixo.
    **Roadmap decidido em 2026-10-24 (a executar no roadmap atual, ainda sem mudanças no app):**
    [`docs/roadmap-fase7-conformidade.md`](roadmap-fase7-conformidade.md) redefine a Fase 7 (conectividade

@@ -39,6 +39,14 @@ endpoint, visto em campo), então a mídia não deve passar por eles.
    primeiro pacote; por isso o papel que funciona fica lembrado por contato (`call_roles.json`). Ao
    inverter, a mídia local é liberada e capturada de novo (reaproveitar derrubava o Windows).
    Compatível para trás: um app antigo ignora `swap` e a chamada acaba no prazo de 30 s.
+   **Ajustes 7.0 (2026-10-26):** prazo da 1ª tentativa de 10 s para 7 s. Antes de ligar/atender o app
+   estima a própria rede (`netprobe.dart`: dois pedidos STUN pelo mesmo socket UDP; CGNAT se o IP público
+   está em 100.64/10, se a porta muda por destino ou se o computador está no hotspot do celular; os IPs
+   locais em 100.64/10 são ignorados porque o Tailscale os usa) e manda `cg`/`v6` no `invite` e no `accept`.
+   Sem memória do contato, quem atende oferece primeiro se só ele está atrás de CGNAT (e não há IPv6 nas
+   duas pontas); a memória por contato continua mandando. A mensagem final de falha diz a causa provável
+   (as duas pontas em CGNAT, só uma, ou desconhecida) e sugere Wi-Fi. IPv6: o libwebrtc já dá prioridade
+   a host IPv6 global sobre IPv4; o app só informa `v6` e registra a família do par escolhido no `calls.log`.
 5. **Compartilhar tela durante a chamada:** com câmera, troca a imagem (`replaceTrack`); só com áudio,
    acrescenta um vídeo e renegocia (educado/impolite para colisão de ofertas).
 6. **Caminho de rede:** ICE com STUN público (Google e Cloudflare), **sem TURN** nesta fase. Entre NATs

@@ -6,6 +6,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+import 'netprobe.dart';
+
 /// Tipo da chamada: o que o **chamador** envia. Em `screen` só o chamador transmite a tela.
 enum CallKind { audio, video, screen }
 
@@ -44,7 +46,7 @@ const _ringTimeout = Duration(seconds: 45);
 const _connectTimeout = Duration(seconds: 25);
 
 /// Prazo da primeira tentativa: uma conexão que abre leva ~4 s; passando disso, inverte os papéis.
-const _firstAttemptTimeout = Duration(seconds: 10);
+const _firstAttemptTimeout = Duration(seconds: 7);
 
 /// Uma chamada 1:1 por vez. Sinalização por mensagens JSON (`invite`, `accept`, `reject`, `busy`,
 /// `offer`, `answer`, `ice`, `hangup`); mídia por WebRTC (DTLS-SRTP).
@@ -54,6 +56,7 @@ class CallController extends ChangeNotifier {
     required this.media,
     this.iceServers = _stun,
     this.screenMaxWidth = 1920,
+    this.netProbe,
   }) {
     _sub = transport.incoming.listen(_onSignal);
   }
@@ -78,8 +81,63 @@ class CallController extends ChangeNotifier {
   }
 
   /// Com este contato, nesta direção, a chamada só conectou com quem atendeu oferecendo?
+  /// `null` = ainda não se sabe (a estimativa de rede decide).
+  bool? _rememberedCalleeOffers(String peerFp, {required bool iAmCaller}) =>
+      rolesFile == null ? null : _loadRoles()['$peerFp|$iAmCaller'];
+
   bool _calleeOffersFor(String peerFp, {required bool iAmCaller}) =>
-      rolesFile != null && (_loadRoles()['$peerFp|$iAmCaller'] ?? false);
+      _rememberedCalleeOffers(peerFp, iAmCaller: iAmCaller) ?? false;
+
+  /// Mede a rede deste lado (CGNAT, IPv6). `null` desliga a estimativa (testes).
+  final Future<NetHint> Function()? netProbe;
+  NetHint _mine = const NetHint();
+  Future<NetHint>? _probing;
+
+  /// O outro lado parece estar atrás de CGNAT / tem IPv6 global (dito por ele na sinalização).
+  bool _peerCgnat = false;
+  bool _peerV6 = false;
+
+  /// Mede a rede (resultado em cache por alguns minutos) e espera no máximo `wait`; a medição
+  /// continua em segundo plano. Nunca lança.
+  Future<void> warmUp({
+    Duration wait = const Duration(milliseconds: 700),
+  }) async {
+    final probe = netProbe;
+    if (probe == null) return;
+    final f = _probing ??= probe()
+        .then((h) {
+          _mine = h;
+          _log('rede deste lado: $h');
+          return h;
+        })
+        .whenComplete(() => _probing = null);
+    try {
+      await f.timeout(wait);
+    } catch (_) {}
+  }
+
+  Map<String, dynamic> get _netFields => netProbe == null
+      ? const {}
+      : {'cg': _mine.cgnat ? 1 : 0, 'v6': _mine.v6 ? 1 : 0};
+
+  /// Por que não abriu caminho direto, e o que fazer.
+  String _noPathMessage() {
+    final name = peerName ?? 'o contato';
+    if (_mine.cgnat && _peerCgnat) {
+      return 'as duas pontas parecem estar em rede móvel (CGNAT), que não abre caminho direto '
+          'entre si: conecte um dos dois a um Wi-Fi e tente de novo';
+    }
+    if (_mine.cgnat) {
+      return 'a sua rede parece ser móvel (CGNAT) e não abriu caminho direto com $name: '
+          'tente por um Wi-Fi';
+    }
+    if (_peerCgnat) {
+      return 'a rede de $name parece ser móvel (CGNAT) e não abriu caminho direto: '
+          'peça para $name usar um Wi-Fi';
+    }
+    return 'não foi possível abrir caminho direto com $name; alguns roteadores e redes '
+        'móveis bloqueiam chamadas: tente por outra rede (Wi-Fi) ou ative o IPv6 no roteador';
+  }
 
   void _rememberRole() {
     final p = peer;
@@ -195,6 +253,9 @@ class CallController extends ChangeNotifier {
     phase = CallPhase.outgoing;
     notifyListeners();
     _timer = Timer(_ringTimeout, () => _end('sem resposta', notify: true));
+    final callId = _id;
+    await warmUp();
+    if (phase != CallPhase.outgoing || _id != callId) return; // cancelou enquanto media
     // Já se sabe que com este contato só conecta se quem atende oferecer: pede isso no convite.
     if (_calleeOffersFor(peerFp, iAmCaller: true)) {
       _calleeOfferedFirst = true;
@@ -206,6 +267,7 @@ class CallController extends ChangeNotifier {
         'id': _id,
         'kind': k.name,
         if (_calleeOfferedFirst) 'so': 1,
+        ..._netFields,
       });
     } catch (e) {
       await _end('não foi possível chamar: $e');
@@ -222,9 +284,26 @@ class CallController extends ChangeNotifier {
       _attemptTimeout(),
       () => _onConnectFailed('a conexão não abriu'),
     );
-    if (_calleeOffersFor(peer!, iAmCaller: false)) _calleeOfferedFirst = true;
+    await warmUp();
+    if (phase != CallPhase.connecting) return; // o outro lado desligou enquanto media
+    // Memória do que funcionou com este contato; sem ela, quem está atrás de CGNAT envia
+    // primeiro (o CGNAT só deixa passar o que responde a algo que ele mesmo enviou). Com IPv6
+    // global nas duas pontas não há NAT no caminho, e a ordem padrão serve.
+    final remembered = _rememberedCalleeOffers(peer!, iAmCaller: false);
+    final bothV6 = _mine.v6 && _peerV6;
+    final byNet = _mine.cgnat && !_peerCgnat && !bothV6;
+    if (remembered ?? byNet) {
+      if (remembered == null) {
+        _log('este lado está atrás de CGNAT e o outro não: atendente oferece primeiro');
+      }
+      _calleeOfferedFirst = true;
+    }
     if (_calleeOfferedFirst) _offerer = true;
-    await _send({'t': 'accept', if (_calleeOfferedFirst) 'o': 1});
+    await _send({
+      't': 'accept',
+      if (_calleeOfferedFirst) 'o': 1,
+      ..._netFields,
+    });
     if (_offerer) await _startAsCaller();
   }
 
@@ -338,7 +417,8 @@ class CallController extends ChangeNotifier {
           final c = byId[id];
           return c == null
               ? '?'
-              : '${c.values['candidateType']} ${c.values['address'] ?? c.values['ip']}:${c.values['port']} (${c.values['protocol']})';
+              : '${c.values['candidateType']} ${c.values['address'] ?? c.values['ip']}:${c.values['port']} '
+                    '(${c.values['protocol']}, ${'${c.values['address'] ?? c.values['ip']}'.contains(':') ? 'IPv6' : 'IPv4'})';
         }
 
         final pairs = stats.where((r) => r.type == 'candidate-pair').toList();
@@ -457,6 +537,9 @@ class CallController extends ChangeNotifier {
       await ensureRenderers();
       _begin(s.peer, s.name, k, caller: false, id: id);
       _calleeOfferedFirst = m['so'] == 1;
+      _peerCgnat = m['cg'] == 1;
+      _peerV6 = m['v6'] == 1;
+      unawaited(warmUp());
       phase = CallPhase.incoming;
       _timer = Timer(_ringTimeout, () => _end('perdida', notify: false));
       notifyListeners();
@@ -478,6 +561,8 @@ class CallController extends ChangeNotifier {
             () => _onConnectFailed('a conexão não abriu'),
           );
           notifyListeners();
+          _peerCgnat = m['cg'] == 1;
+          _peerV6 = m['v6'] == 1;
           if (m['o'] == 1) {
             // Quem atendeu vai oferecer: este lado espera a oferta.
             _calleeOfferedFirst = true;
@@ -523,6 +608,8 @@ class CallController extends ChangeNotifier {
     _caller = caller;
     _offerer = caller;
     _calleeOfferedFirst = false;
+    _peerCgnat = false;
+    _peerV6 = false;
     _attempt = 0;
     retrying = false;
     _id = id;
@@ -884,11 +971,7 @@ class CallController extends ChangeNotifier {
       return;
     }
     if (_attempt > 0) {
-      await _end(
-        'sem caminho direto com este contato (rede móvel ou roteador restritivo): '
-        'tente de outra rede',
-        notify: true,
-      );
+      await _end(_noPathMessage(), notify: true);
       return;
     }
     if (!_offerer) {
@@ -896,7 +979,7 @@ class CallController extends ChangeNotifier {
       _timer?.cancel();
       _timer = Timer(
         const Duration(seconds: 20),
-        () => _end('a conexão não abriu', notify: true),
+        () => _end(_noPathMessage(), notify: true),
       );
       return;
     }
@@ -1033,8 +1116,17 @@ class CallController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _disposed = false;
+
+  /// Um sinal atrasado pode encerrar a chamada depois do `dispose()`: não notifica ninguém.
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     _sub.cancel();
     _timer?.cancel();
     remoteRenderer.dispose();

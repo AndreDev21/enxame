@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:enxame_app/src/calls.dart';
 import 'package:enxame_app/src/device_media.dart';
+import 'package:enxame_app/src/netprobe.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:integration_test/integration_test.dart';
@@ -21,15 +22,18 @@ class _Wire implements SignalTransport {
   /// Descarta os candidatos ICE da primeira tentativa: a conexão não abre e os papéis se invertem.
   bool dropFirstAttemptIce = false;
 
+  /// Descarta todos os candidatos ICE: nenhuma tentativa conecta.
+  bool dropAllIce = false;
+
   @override
   Stream<IncomingSignal> get incoming => _in.stream;
 
   @override
   Future<void> send(String peer, Map<String, dynamic> msg) async {
     sent.add(msg);
-    if (dropFirstAttemptIce &&
-        msg['t'] == 'ice' &&
-        ((msg['a'] as int?) ?? 0) == 0) {
+    if (msg['t'] == 'ice' &&
+        (dropAllIce ||
+            (dropFirstAttemptIce && ((msg['a'] as int?) ?? 0) == 0))) {
       return;
     }
     // Passa por JSON como no app e entrega depois de um ciclo (rede de verdade é assíncrona).
@@ -148,6 +152,72 @@ void main() {
           '${a.localRenderer.videoWidth}x${a.localRenderer.videoHeight}; A enviou $out',
     );
   });
+
+  testWidgets(
+    'quem atende está atrás de CGNAT e o chamador não: o atendente oferece na 1ª tentativa',
+    (tester) async {
+      a.dispose();
+      b.dispose();
+      a = CallController(
+        transport: wa,
+        media: DeviceMedia(pickScreen: firstScreen),
+        iceServers: const [],
+        netProbe: () async => const NetHint(why: 'teste'),
+      );
+      b = CallController(
+        transport: wb,
+        media: DeviceMedia(pickScreen: firstScreen),
+        iceServers: const [],
+        netProbe: () async => const NetHint(cgnat: true, why: 'teste'),
+      );
+      await a.call('B', 'Pessoa B', CallKind.screen);
+      await until(() => b.phase == CallPhase.incoming);
+      await b.accept();
+      await until(
+        () => a.phase == CallPhase.connected && b.phase == CallPhase.connected,
+        why:
+            'conectou: A=${a.phase} (${a.endedReason}) B=${b.phase} (${b.endedReason})',
+      );
+      expect(wb.sent.map((m) => m['t']), contains('offer'));
+      expect(wa.sent.map((m) => m['t']), isNot(contains('offer')));
+      expect(wa.sent.map((m) => m['t']), isNot(contains('swap')));
+      expect(wb.sent.firstWhere((m) => m['t'] == 'accept')['cg'], 1);
+    },
+  );
+
+  testWidgets(
+    'sem caminho: a mensagem final diz a causa provável (as duas pontas em CGNAT)',
+    (tester) async {
+      wa.dropAllIce = true;
+      wb.dropAllIce = true;
+      a.dispose();
+      b.dispose();
+      a = CallController(
+        transport: wa,
+        media: DeviceMedia(pickScreen: firstScreen),
+        iceServers: const [],
+        netProbe: () async => const NetHint(cgnat: true, why: 'teste'),
+      );
+      b = CallController(
+        transport: wb,
+        media: DeviceMedia(pickScreen: firstScreen),
+        iceServers: const [],
+        netProbe: () async => const NetHint(cgnat: true, why: 'teste'),
+      );
+      await a.call('B', 'Pessoa B', CallKind.screen);
+      await until(() => b.phase == CallPhase.incoming);
+      await b.accept();
+      await until(
+        () => a.phase == CallPhase.idle && b.phase == CallPhase.idle,
+        seconds: 90,
+        why: 'A=${a.phase} B=${b.phase}',
+      );
+      expect(wa.sent.map((m) => m['t']), contains('swap'));
+      expect(a.endedReason, contains('CGNAT'));
+      expect(a.endedReason, contains('Wi-Fi'));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 
   testWidgets(
     'conexão que não abre: os papéis se invertem e a tela de A chega a B',

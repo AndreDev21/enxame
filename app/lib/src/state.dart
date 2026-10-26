@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import 'calls.dart';
 import 'device_media.dart';
+import 'netprobe.dart';
 import 'rust/api/app.dart' as api;
 
 import 'package:flutter_webrtc/flutter_webrtc.dart' show DesktopCapturerSource;
@@ -71,6 +72,7 @@ class AppState extends ChangeNotifier {
   late final CallController calls = CallController(
     transport: _CoreSignals(_signals.stream),
     media: DeviceMedia(pickScreen: () async => pickScreen?.call()),
+    netProbe: NetProbe().probe,
   );
 
   /// A interface registra aqui o diálogo que deixa o usuário escolher a tela ou janela.
@@ -97,6 +99,7 @@ class AppState extends ChangeNotifier {
   Future<void> start({String? displayName}) async {
     me = await api.startNode(displayName: displayName);
     calls.logFile = File('${api.dataDir()}${Platform.pathSeparator}calls.log');
+    unawaited(calls.warmUp(wait: Duration.zero));
     calls.rolesFile = File(
       '${api.dataDir()}${Platform.pathSeparator}call_roles.json',
     );
