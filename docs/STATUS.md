@@ -1,6 +1,6 @@
 # Status do projeto — onde paramos
 
-Atualizado em 2026-10-23 (fim da sessão; ver "Amanhã" no fim do bloco 6.6). **Leia este arquivo primeiro ao retomar.**
+Atualizado em 2026-10-29 (Fase 7.2 etapa 4 feita; **passagem de bastão em [`handoff-fase7-2.md`](handoff-fase7-2.md)**). **Leia este arquivo primeiro ao retomar.**
 Especificação: [`enxame-mvp.md`](../enxame-mvp.md) · convenções: [`CLAUDE.md`](../CLAUDE.md).
 
 ## Resumo em uma frase
@@ -89,7 +89,18 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
    degrau (lan/ipv6/ipv4Direct/relay), NAT inferido, UPnP (SSDP), tempo até conectar, RTT, perda, trocas de
    caminho. Exportação opt-in em Diagnóstico; relatório por degrau: `scripts/field/metrics_report.py`.
    1ª medição (`reports/fase7-medicao-1.md`): 4/4 conectaram em Wi-Fi e hotspot 5G de uma operadora. Falta: rodar a matriz de 5–10 redes reais e aplicar a regra de decisão (alcançáveis >= ~20% → 7.5);
-   NAT-PMP/PCP não são medidos. **ADR 0015 aberto e plano do 7.2 escrito** (`adr/0015-…`, `plano-fase7-2-midia-sobre-iroh.md`); etapa 1 do 7.2 (spike) **feita**: o libwebrtc aceita TURN em loopback e conecta por `relay/relay` com endereços virtuais (uma alocação por chamada); etapa 2 **feita**: ponte `enxame/media/1` no núcleo (`media_bridge_start`), testada com clientes TURN reais entre dois nós; próximo: etapa 3 (MTU por caminho) e 4 (FFI + `iceServers` no app). Falta `cargo deny`.
+   NAT-PMP/PCP não são medidos. **ADR 0015 aberto e plano do 7.2 escrito** (`adr/0015-…`, `plano-fase7-2-midia-sobre-iroh.md`).
+   **7.2 (mídia sobre o iroh) — etapas 1 a 4 feitas, falta prova com mídia real (2026-10-29):** (1) o libwebrtc aceita
+   TURN em loopback e conecta por `relay/relay`; (2) ponte `enxame/media/1` no núcleo (`media_bridge_start`, TURN local
+   com `RelayAddressGenerator` sobre datagramas QUIC do iroh), testada com clientes TURN reais entre dois nós; (3) MTU:
+   1414 B no direto e no relay local, pacote de 1232 B passa 10/10 (fragmentação **não** implementada, sem dado real;
+   relay do n0 não medido); (4) FFI `start/stop_media_bridge`, uma ponte por conexão WebRTC em `iceServers`, degraus
+   `irohDirect`/`irohRelay` + bloco `bridge` na medição, vídeo/tela pausados no relay público do iroh. Commits
+   `509c9b5`, `f597548`, `e8fd0ca`, `7308da4` (handoff), tudo no `origin/main`. **Nunca rodou libwebrtc + ponte real entre duas
+   máquinas** (FFI tem nó global único, não há teste in-process): falta forçar a ponte em teste
+   (`ENXAME_ICE_POLICY=relay` sugerido, não existe), campo com dois CGNAT, troca relay→direto, MTU em rede real,
+   latência contra `iroh-relay` próprio. Aviso de "só áudio" na tela de chamada não existe. Falta `cargo deny`.
+   O Windows foi avisado para atualizar para `7308da4`, sem confirmação de resposta.
    **Campo 2026-10-26 (`4d7f518`):** mesma Wi-Fi (Windows ↔ Linux, identidades de teste), nos dois sentidos:
    conectou em ~0,5 s, sem `swap`, par host/host. Notebook no hotspot 5G (POCO, IPv6 global no Windows, nenhum no
    Linux): 4 chamadas, nenhuma abriu caminho direto em nenhuma ordem (a inversão de papéis funciona nos dois
@@ -103,7 +114,7 @@ A **Fase 5 (grupos)** está implementada, passa nos testes locais e foi validada
    de mídia sem servidor: escada de conexão, mídia sobre iroh, relays de amigos e pool comunitário) e
    acrescenta a Fase 8 (conformidade ECA Digital, somente 18+), a Fase 9 (controle parental) e o modelo
    de ameaças. Estudo de base: [`estudo-conectividade-sem-servidor.md`](estudo-conectividade-sem-servidor.md).
-   Os ADRs 0015 a 0017 ainda serão abertos. O bloco 7.0 pode entrar no fim da Fase 6.
+   O ADR 0015 está aberto; os 0016 e 0017 ainda serão abertos. O bloco 7.0 pode entrar no fim da Fase 6.
 
 ## Princípio de produto (decidido nesta sessão)
 
