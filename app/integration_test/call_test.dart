@@ -45,6 +45,35 @@ class _Wire implements SignalTransport {
   }
 }
 
+/// Ponte de mentira: anota o que o controlador pede; o TURN que devolve não existe (o ICE ignora).
+class _FakeBridge implements MediaBridgeProvider {
+  _FakeBridge({this.fail = false});
+  final bool fail;
+  final starts = <bool>[]; // `caller` de cada subida
+  int stops = 0;
+
+  @override
+  Future<BridgeInfo> start(String peerFp, {required bool caller}) async {
+    starts.add(caller);
+    if (fail) throw 'sem núcleo';
+    return const BridgeInfo('turn:127.0.0.1:9?transport=udp', 'u', 'p');
+  }
+
+  @override
+  Future<void> stop() async => stops++;
+
+  @override
+  Future<BridgeStatus?> status() async => const BridgeStatus(
+    linked: true,
+    direct: true,
+    maxDatagram: 1414,
+    sent: 3,
+    received: 2,
+    droppedTooLarge: 0,
+    droppedOther: 0,
+  );
+}
+
 Future<void> until(bool Function() ok, {int seconds = 30, String? why}) async {
   for (var i = 0; i < seconds * 10 && !ok(); i++) {
     await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -218,6 +247,72 @@ void main() {
     );
     final raw = File('${dir.path}/m.jsonl').readAsStringSync();
     expect(RegExp(r'\d+\.\d+\.\d+\.\d+').hasMatch(raw), isFalse, reason: raw);
+  });
+
+  testWidgets(
+    'ponte de mídia: sobe um TURN por conexão nos dois lados, derruba no fim e entra na medição',
+    (tester) async {
+      final fa = _FakeBridge(), fb = _FakeBridge();
+      final dir = Directory.systemTemp.createTempSync('enxame-bridge-it');
+      final log = CallMetricsLog(File('${dir.path}/m.jsonl'));
+      a.dispose();
+      b.dispose();
+      a = CallController(
+        transport: wa,
+        media: DeviceMedia(pickScreen: firstScreen),
+        iceServers: const [],
+        bridge: fa,
+      )..metrics = log;
+      b = CallController(
+        transport: wb,
+        media: DeviceMedia(pickScreen: firstScreen),
+        iceServers: const [],
+        bridge: fb,
+      );
+      await a.call('B', 'Pessoa B', CallKind.screen);
+      await until(() => b.phase == CallPhase.incoming);
+      await b.accept();
+      await until(
+        () => a.phase == CallPhase.connected && b.phase == CallPhase.connected,
+        why: 'conectou: A=${a.phase} (${a.endedReason}) B=${b.phase}',
+      );
+      expect(fa.starts, [true]);
+      expect(fb.starts, [false]);
+      await Future<void>.delayed(const Duration(seconds: 5));
+      await a.hangup();
+      await until(() => b.phase == CallPhase.idle);
+      expect(fa.stops, 1);
+      expect(fb.stops, 1);
+      final r = log.read().single;
+      expect(r['bridge'], containsPair('max_datagram', 1414));
+      expect(r['bridge'], containsPair('iroh_direct', true));
+    },
+  );
+
+  testWidgets('ponte indisponível: a chamada conecta como antes', (
+    tester,
+  ) async {
+    a.dispose();
+    b.dispose();
+    a = CallController(
+      transport: wa,
+      media: DeviceMedia(pickScreen: firstScreen),
+      iceServers: const [],
+      bridge: _FakeBridge(fail: true),
+    );
+    b = CallController(
+      transport: wb,
+      media: DeviceMedia(pickScreen: firstScreen),
+      iceServers: const [],
+      bridge: _FakeBridge(fail: true),
+    );
+    await a.call('B', 'Pessoa B', CallKind.screen);
+    await until(() => b.phase == CallPhase.incoming);
+    await b.accept();
+    await until(
+      () => a.phase == CallPhase.connected && b.phase == CallPhase.connected,
+      why: 'conectou: A=${a.phase} (${a.endedReason}) B=${b.phase}',
+    );
   });
 
   testWidgets(

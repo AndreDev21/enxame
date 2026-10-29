@@ -43,6 +43,45 @@ const _stun = [
   {'urls': 'stun:stun.cloudflare.com:3478'},
 ];
 
+/// Servidor TURN local da chamada (ponte de mídia sobre o iroh, Fase 7.2).
+class BridgeInfo {
+  const BridgeInfo(this.url, this.username, this.credential);
+  final String url;
+  final String username;
+  final String credential;
+}
+
+/// Medidas da ponte (sem endereços).
+class BridgeStatus {
+  const BridgeStatus({
+    required this.linked,
+    required this.direct,
+    required this.maxDatagram,
+    required this.sent,
+    required this.received,
+    required this.droppedTooLarge,
+    required this.droppedOther,
+  });
+  final bool linked;
+
+  /// `true` = o iroh usa caminho direto; `false` = relay do iroh; `null` = ainda sem conexão.
+  final bool? direct;
+  final int? maxDatagram;
+  final int sent;
+  final int received;
+  final int droppedTooLarge;
+  final int droppedOther;
+}
+
+/// Liga a chamada ao núcleo: sobe e derruba a ponte `enxame/media/1`. `null` no controlador =
+/// sem ponte (testes).
+abstract class MediaBridgeProvider {
+  /// `caller`: quem ligou disca; quem atendeu espera e deve subir antes de responder.
+  Future<BridgeInfo> start(String peerFp, {required bool caller});
+  Future<void> stop();
+  Future<BridgeStatus?> status();
+}
+
 const _ringTimeout = Duration(seconds: 45);
 const _connectTimeout = Duration(seconds: 25);
 
@@ -61,6 +100,7 @@ class CallController extends ChangeNotifier {
     this.iceServers = _stun,
     this.screenMaxWidth = 1920,
     this.netProbe,
+    this.bridge,
   }) {
     _sub = transport.incoming.listen(_onSignal);
   }
@@ -116,6 +156,7 @@ class CallController extends ChangeNotifier {
         );
       }
     } catch (_) {}
+    await _sampleBridge();
     await warmUp(wait: const Duration(milliseconds: 200));
     final outcome = connected
         ? 'connected'
@@ -133,6 +174,7 @@ class CallController extends ChangeNotifier {
         seconds: (connected ? _connectedWatch?.elapsed.inSeconds : null) ?? 0,
         failClass: outcome == 'failed' ? failClass(reason) : null,
         sampler: _sampler,
+        bridge: _bridgeStatus,
         net: netProbe == null ? const {} : _mine.toJson(),
         peer: netProbe == null
             ? const {}
@@ -232,6 +274,14 @@ class CallController extends ChangeNotifier {
   final SignalTransport transport;
   final MediaProvider media;
   final List<Map<String, dynamic>> iceServers;
+
+  /// Ponte de mídia sobre o iroh (TURN local); a cada conexão WebRTC sobe uma nova.
+  final MediaBridgeProvider? bridge;
+  BridgeStatus? _bridgeStatus;
+  bool _bridgeUp = false;
+
+  /// O caminho em uso é o relay público do iroh: só cabe áudio (D4, degrau 6).
+  bool audioOnlyPath = false;
   late final StreamSubscription<IncomingSignal> _sub;
 
   final RTCVideoRenderer remoteRenderer = RTCVideoRenderer();
@@ -397,6 +447,10 @@ class CallController extends ChangeNotifier {
   /// Começa a transmitir a tela (o usuário escolhe a fonte). Numa chamada com câmera troca a
   /// imagem; numa só de áudio acrescenta um vídeo e renegocia.
   Future<void> startShare() async {
+    if (audioOnlyPath) {
+      _log('compartilhar a tela: caminho por relay público, só áudio');
+      return;
+    }
     final pc = _pc;
     if (pc == null || sharing || phase != CallPhase.connected) return;
     final stream = await media.screen();
@@ -552,6 +606,7 @@ class CallController extends ChangeNotifier {
       try {
         final all = await stats_();
         _sampler.sample(_items(all));
+        await _sampleBridge();
         for (final r in all) {
           final kindV = r.values['kind'] ?? r.values['mediaType'];
           if (kindV != 'video') continue;
@@ -572,6 +627,31 @@ class CallController extends ChangeNotifier {
         }
       } catch (_) {}
     });
+  }
+
+  /// Lê as medidas da ponte e aplica o limite de áudio quando o iroh está no relay público.
+  Future<void> _sampleBridge() async {
+    final b = bridge;
+    if (b == null || !_bridgeUp) return;
+    try {
+      final st = await b.status();
+      if (st == null) return;
+      _bridgeStatus = st;
+      final onBridge = _sampler.last?.ladder == Ladder.relay;
+      final limit = onBridge && st.direct == false && kind != CallKind.audio;
+      if (limit != audioOnlyPath) {
+        audioOnlyPath = limit;
+        _log(
+          limit
+              ? 'caminho por relay público: só áudio (vídeo e tela pausados)'
+              : 'caminho direto: vídeo liberado',
+        );
+        for (final t in _mic?.getVideoTracks() ?? const <MediaStreamTrack>[]) {
+          t.enabled = !limit && camOn;
+        }
+        notifyListeners();
+      }
+    } catch (_) {}
   }
 
   Future<List<StatsReport>> stats_() async => await _pc?.getStats() ?? const [];
@@ -690,8 +770,26 @@ class CallController extends ChangeNotifier {
 
   Future<RTCPeerConnection> _newPeerConnection() async {
     _log('criando a conexão WebRTC');
+    final servers = [...iceServers];
+    final b = bridge;
+    if (b != null) {
+      // Falhar aqui não impede a chamada: segue só com o ICE direto (comportamento anterior).
+      try {
+        final info = await b.start(peer!, caller: _caller);
+        servers.add({
+          'urls': info.url,
+          'username': info.username,
+          'credential': info.credential,
+        });
+        _bridgeUp = true;
+        _log('ponte de mídia pronta');
+      } catch (e) {
+        _bridgeUp = false;
+        _log('ponte de mídia indisponível: $e');
+      }
+    }
     final pc = await createPeerConnection({
-      'iceServers': iceServers,
+      'iceServers': servers,
       'sdpSemantics': 'unified-plan',
     });
     _log('conexão WebRTC criada');
@@ -1104,6 +1202,19 @@ class CallController extends ChangeNotifier {
   /// captura de novo, como uma chamada nova. Reaproveitar o microfone entre conexões derrubou o
   /// app no Windows (`libwebrtc.dll` 0xc0000005, ~1 s depois de conectar). Na chamada de tela quem
   /// transmite escolhe a tela outra vez.
+  Future<void> _stopBridge() async {
+    final b = bridge;
+    if (b == null || !_bridgeUp) return;
+    _bridgeUp = false;
+    _bridgeStatus = null;
+    audioOnlyPath = false;
+    try {
+      await b.stop();
+    } catch (e) {
+      _log('fechar a ponte de mídia: $e');
+    }
+  }
+
   Future<void> _dropConnection() async {
     final pc = _pc;
     _pc = null;
@@ -1138,6 +1249,7 @@ class CallController extends ChangeNotifier {
       _log('dispose da conexão: $e');
     }
     await pc?.close();
+    await _stopBridge();
     _log('conexão da tentativa anterior fechada');
   }
 
@@ -1185,6 +1297,7 @@ class CallController extends ChangeNotifier {
       _log('dispose da conexão: $e');
     }
     await pc?.close();
+    await _stopBridge();
     _log('conexão fechada');
     remoteRenderer.srcObject = null;
     localRenderer.srcObject = null;

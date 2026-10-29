@@ -48,7 +48,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FileInfo dco_decode_box_autoadd_file_info(dynamic raw);
 
   @protected
+  MediaBridgeStats dco_decode_box_autoadd_media_bridge_stats(dynamic raw);
+
+  @protected
   Settings dco_decode_box_autoadd_settings(dynamic raw);
+
+  @protected
+  int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
   ContactContribution dco_decode_contact_contribution(dynamic raw);
@@ -114,6 +120,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  MediaBridgeInfo dco_decode_media_bridge_info(dynamic raw);
+
+  @protected
+  MediaBridgeStats dco_decode_media_bridge_stats(dynamic raw);
+
+  @protected
   MessageInfo dco_decode_message_info(dynamic raw);
 
   @protected
@@ -130,6 +142,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FileInfo? dco_decode_opt_box_autoadd_file_info(dynamic raw);
+
+  @protected
+  MediaBridgeStats? dco_decode_opt_box_autoadd_media_bridge_stats(dynamic raw);
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
 
   @protected
   PeerDiagInfo dco_decode_peer_diag_info(dynamic raw);
@@ -179,7 +197,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FileInfo sse_decode_box_autoadd_file_info(SseDeserializer deserializer);
 
   @protected
+  MediaBridgeStats sse_decode_box_autoadd_media_bridge_stats(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Settings sse_decode_box_autoadd_settings(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
   ContactContribution sse_decode_contact_contribution(
@@ -255,6 +281,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  MediaBridgeInfo sse_decode_media_bridge_info(SseDeserializer deserializer);
+
+  @protected
+  MediaBridgeStats sse_decode_media_bridge_stats(SseDeserializer deserializer);
+
+  @protected
   MessageInfo sse_decode_message_info(SseDeserializer deserializer);
 
   @protected
@@ -271,6 +303,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FileInfo? sse_decode_opt_box_autoadd_file_info(SseDeserializer deserializer);
+
+  @protected
+  MediaBridgeStats? sse_decode_opt_box_autoadd_media_bridge_stats(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
   PeerDiagInfo sse_decode_peer_diag_info(SseDeserializer deserializer);
@@ -330,7 +370,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_media_bridge_stats(
+    MediaBridgeStats self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_settings(Settings self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_contact_contribution(
@@ -432,6 +481,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_media_bridge_info(
+    MediaBridgeInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_media_bridge_stats(
+    MediaBridgeStats self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_message_info(MessageInfo self, SseSerializer serializer);
 
   @protected
@@ -451,6 +512,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     FileInfo? self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_opt_box_autoadd_media_bridge_stats(
+    MediaBridgeStats? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
 
   @protected
   void sse_encode_peer_diag_info(PeerDiagInfo self, SseSerializer serializer);

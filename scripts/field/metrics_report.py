@@ -40,7 +40,7 @@ def main(paths):
     print(f"conexões: {n}   conectaram: {len(ok)} ({pct(len(ok), n).strip()})")
     print("\nDegrau que carregou a mídia (entre as que conectaram):")
     ladder = Counter(r["ladder"] for r in ok)
-    for k in ("lan", "ipv6", "ipv4Direct", "relay"):
+    for k in ("lan", "ipv6", "ipv4Direct", "irohDirect", "irohRelay", "relay"):
         print(f"  {k:<11} {ladder.get(k, 0):4d}  {pct(ladder.get(k, 0), len(ok))}")
     print("\nFalhas por classe:")
     for k, v in Counter(r.get("fail", "?") for r in rows if r["outcome"] == "failed").most_common():

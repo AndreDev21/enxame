@@ -123,3 +123,21 @@ Teste: `cargo test -p enxame-core --test media` (nós in-process, **clientes TUR
   entra nas métricas da etapa 4; se aparecer no campo (etapa 5), implementa-se a fragmentação ou reduz-se o MTU
   do libwebrtc.
 - Não medido: relay público do n0 (limite de datagrama pode ser menor) — fica para a etapa 6.
+
+## Etapa 4 — integração no app (2026-10-29)
+
+- FFI (`crates/enxame-ffi/src/api/app.rs`): `start_media_bridge(contact, caller)`, `stop_media_bridge()`,
+  `media_bridge_stats()`; uma ponte por vez, a anterior é fechada ao subir outra.
+- `CallController` (`MediaBridgeProvider`, injetável; `null` nos testes): **uma ponte por conexão WebRTC** — sobe em
+  `_newPeerConnection` (chamador disca; atendente registra antes de responder) e entra em `iceServers` ao lado do
+  STUN; cai em `_dropConnection` (troca de papéis) e `_end`. Falha ao subir só é registrada no log e a chamada
+  segue como antes.
+- Escada: relay do ICE + ponte vira `irohDirect` ou `irohRelay` no registro de medição, com o bloco `bridge`
+  (MTU de datagrama, pacotes, `dropped_too_large`). Relay público do iroh (`direct == false`) em chamada de
+  vídeo/tela: câmera pausada, `startShare` recusado e `audioOnlyPath = true` (a interface ainda não mostra aviso).
+- Testes: `call_test` com ponte de mentira (sobe nos dois lados com os papéis certos, derruba no fim, medição) e com
+  ponte indisponível (conecta como antes); unitário da escada. **Não há teste in-process com TURN real**: o FFI tem
+  um único nó global, então dois controladores no mesmo processo não têm duas pontes; a prova com cliente TURN
+  real entre dois nós está em `tests/media.rs`, e a de libwebrtc + ponte é o campo (etapa 5).
+- Pendente: aviso de "só áudio" na tela de chamada; validar em campo que o ICE escolhe a ponte quando o direto
+  não abre e que o direto vence quando abre.

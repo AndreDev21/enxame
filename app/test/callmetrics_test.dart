@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:enxame_app/src/callmetrics.dart';
+import 'package:enxame_app/src/calls.dart' show BridgeStatus;
 import 'package:flutter_test/flutter_test.dart';
 
 StatItem cand(String id, String type, String addr) => (
@@ -176,5 +177,42 @@ void main() {
     final exported = out.readAsStringSync();
     expect(exported, isNot(contains('1.2.3.4')));
     expect(exported, isNot(contains('fingerprint')));
+  });
+
+  group('ponte de mídia (Fase 7.2)', () {
+    PathSampler relaySampler() => PathSampler()
+      ..sample([
+        cand('l', 'relay', '198.18.0.1'),
+        cand('r', 'relay', '198.18.0.2'),
+        pair('l', 'r', rtt: 0.05),
+      ]);
+
+    Map<String, Object?> row(bool? direct) => CallRecord(
+      hour: '2026-10-29T14',
+      os: 'linux',
+      kind: 'audio',
+      caller: true,
+      outcome: 'connected',
+      attempts: 1,
+      swapped: false,
+      msToConnect: 900,
+      seconds: 30,
+      sampler: relaySampler(),
+      bridge: BridgeStatus(
+        linked: true,
+        direct: direct,
+        maxDatagram: 1414,
+        sent: 10,
+        received: 9,
+        droppedTooLarge: 0,
+        droppedOther: 0,
+      ),
+    ).toJson();
+
+    test('relay do ICE com iroh direto vira irohDirect; com relay do iroh, irohRelay', () {
+      expect(row(true)['ladder'], 'irohDirect');
+      expect(row(false)['ladder'], 'irohRelay');
+      expect(row(true)['bridge'], containsPair('max_datagram', 1414));
+    });
   });
 }

@@ -103,6 +103,23 @@ Future<void> sendCallSignal({
   payload: payload,
 );
 
+/// Sobe a ponte da chamada com `contact`. `caller`: quem ligou disca; quem atendeu espera, então
+/// deve chamar isto antes de responder `accept`. Uma ponte anterior ainda aberta é fechada.
+Future<MediaBridgeInfo> startMediaBridge({
+  required String contact,
+  required bool caller,
+}) => RustLib.instance.api.crateApiAppStartMediaBridge(
+  contact: contact,
+  caller: caller,
+);
+
+Future<void> stopMediaBridge() =>
+    RustLib.instance.api.crateApiAppStopMediaBridge();
+
+/// `None` se não há ponte.
+Future<MediaBridgeStats?> mediaBridgeStats() =>
+    RustLib.instance.api.crateApiAppMediaBridgeStats();
+
 Future<List<FileItem>> files({required String contact}) =>
     RustLib.instance.api.crateApiAppFiles(contact: contact);
 
@@ -519,6 +536,78 @@ class GroupSendResult {
           delivered == other.delivered &&
           offline == other.offline &&
           carriers == other.carriers;
+}
+
+/// Servidor TURN local de uma chamada (vai em `iceServers` do WebRTC).
+class MediaBridgeInfo {
+  final String url;
+  final String username;
+  final String credential;
+
+  const MediaBridgeInfo({
+    required this.url,
+    required this.username,
+    required this.credential,
+  });
+
+  @override
+  int get hashCode => url.hashCode ^ username.hashCode ^ credential.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MediaBridgeInfo &&
+          runtimeType == other.runtimeType &&
+          url == other.url &&
+          username == other.username &&
+          credential == other.credential;
+}
+
+/// Medidas da ponte de mídia, sem endereços.
+class MediaBridgeStats {
+  /// A conexão `enxame/media/1` com o contato já abriu.
+  final bool linked;
+
+  /// `Some(true)` = caminho direto, `Some(false)` = por relay do iroh.
+  final bool? direct;
+  final int? maxDatagram;
+  final BigInt sent;
+  final BigInt received;
+  final BigInt droppedTooLarge;
+  final BigInt droppedOther;
+
+  const MediaBridgeStats({
+    required this.linked,
+    this.direct,
+    this.maxDatagram,
+    required this.sent,
+    required this.received,
+    required this.droppedTooLarge,
+    required this.droppedOther,
+  });
+
+  @override
+  int get hashCode =>
+      linked.hashCode ^
+      direct.hashCode ^
+      maxDatagram.hashCode ^
+      sent.hashCode ^
+      received.hashCode ^
+      droppedTooLarge.hashCode ^
+      droppedOther.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MediaBridgeStats &&
+          runtimeType == other.runtimeType &&
+          linked == other.linked &&
+          direct == other.direct &&
+          maxDatagram == other.maxDatagram &&
+          sent == other.sent &&
+          received == other.received &&
+          droppedTooLarge == other.droppedTooLarge &&
+          droppedOther == other.droppedOther;
 }
 
 class MessageInfo {

@@ -74,6 +74,7 @@ class AppState extends ChangeNotifier {
     transport: _CoreSignals(_signals.stream),
     media: DeviceMedia(pickScreen: () async => pickScreen?.call()),
     netProbe: NetProbe().probe,
+    bridge: _CoreBridge(),
   );
 
   /// A interface registra aqui o diálogo que deixa o usuário escolher a tela ou janela.
@@ -288,4 +289,31 @@ class _CoreSignals implements SignalTransport {
   @override
   Future<void> send(String peer, Map<String, dynamic> msg) =>
       api.sendCallSignal(contact: peer, payload: encodeSignal(msg));
+}
+
+/// Ponte de mídia do núcleo (Fase 7.2): TURN local sobre o iroh.
+class _CoreBridge implements MediaBridgeProvider {
+  @override
+  Future<BridgeInfo> start(String peerFp, {required bool caller}) async {
+    final i = await api.startMediaBridge(contact: peerFp, caller: caller);
+    return BridgeInfo(i.url, i.username, i.credential);
+  }
+
+  @override
+  Future<void> stop() => api.stopMediaBridge();
+
+  @override
+  Future<BridgeStatus?> status() async {
+    final s = await api.mediaBridgeStats();
+    if (s == null) return null;
+    return BridgeStatus(
+      linked: s.linked,
+      direct: s.direct,
+      maxDatagram: s.maxDatagram,
+      sent: s.sent.toInt(),
+      received: s.received.toInt(),
+      droppedTooLarge: s.droppedTooLarge.toInt(),
+      droppedOther: s.droppedOther.toInt(),
+    );
+  }
 }

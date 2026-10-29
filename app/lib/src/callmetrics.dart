@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'calls.dart' show BridgeStatus;
+
 /// Medição de conexões de chamada (Fase 7.1): um registro local por tentativa de conexão, sem IPs,
 /// sem fingerprints e sem texto livre. Fica em `<dados>/call_metrics.jsonl`; sai do computador só
 /// quando o usuário exporta (`CallMetricsLog.exportAnonymized`). Esquema em `docs/metricas-chamadas.md`.
 
 /// Degrau da escada de conexão (roadmap da Fase 7, D4) que de fato carregou a mídia.
-enum Ladder { lan, ipv6, ipv4Direct, relay, none }
+enum Ladder { lan, ipv6, ipv4Direct, relay, irohDirect, irohRelay, none }
 
 /// Caminho escolhido pelo ICE, sem endereços.
 class PathInfo {
@@ -173,6 +175,7 @@ class CallRecord {
     required this.seconds,
     this.failClass,
     this.sampler,
+    this.bridge,
     this.net = const {},
     this.peer = const {},
   });
@@ -191,12 +194,21 @@ class CallRecord {
   final int seconds;
   final String? failClass;
   final PathSampler? sampler;
+
+  /// Ponte de mídia sobre o iroh (Fase 7.2); `null` = chamada sem ponte.
+  final BridgeStatus? bridge;
   final Map<String, Object?> net;
   final Map<String, Object?> peer;
 
   Map<String, Object?> toJson() {
     final s = sampler;
     final path = s?.last;
+    final br = bridge;
+    // O "relay" do ICE é a ponte: o degrau real é o caminho do iroh (direto ou relay público).
+    var ladder = path?.ladder ?? Ladder.none;
+    if (br != null && ladder == Ladder.relay) {
+      ladder = br.direct == false ? Ladder.irohRelay : Ladder.irohDirect;
+    }
     return {
       'v': 1,
       'hour': hour,
@@ -209,7 +221,7 @@ class CallRecord {
       'ms_to_connect': msToConnect,
       'seconds': seconds,
       if (failClass != null) 'fail': failClass,
-      'ladder': (path?.ladder ?? Ladder.none).name,
+      'ladder': ladder.name,
       if (path != null) ...{
         'local_type': path.localType,
         'remote_type': path.remoteType,
@@ -220,6 +232,15 @@ class CallRecord {
       'rtt_ms_max': _r1(s?.rttMax),
       'loss_pct': _r1(s?.lossPct),
       'jitter_ms': _r1(s?.jitterMs),
+      if (br != null)
+        'bridge': {
+          'iroh_direct': br.direct,
+          'max_datagram': br.maxDatagram,
+          'sent': br.sent,
+          'received': br.received,
+          'dropped_too_large': br.droppedTooLarge,
+          'dropped_other': br.droppedOther,
+        },
       'net': net,
       'peer': peer,
     };
@@ -259,7 +280,7 @@ class CallMetricsLog {
       'v', 'hour', 'os', 'kind', 'role', 'outcome', 'attempts', 'swapped',
       'ms_to_connect', 'seconds', 'fail', 'ladder', 'local_type', 'remote_type',
       'family', 'path_changes', 'rtt_ms_avg', 'rtt_ms_max', 'loss_pct',
-      'jitter_ms', 'net', 'peer', //
+      'jitter_ms', 'bridge', 'net', 'peer', //
     };
     final rows = [
       for (final m in read())

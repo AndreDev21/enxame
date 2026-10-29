@@ -2,15 +2,22 @@
 //! funções falham com "o nó não está rodando" antes disso. Os contatos são identificados pela
 //! fingerprint (única) e os grupos pelo id em hexadecimal.
 
-use std::{path::PathBuf, sync::RwLock, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::{Mutex, RwLock},
+    time::Duration,
+};
 
 use data_encoding::HEXLOWER;
-use enxame_core::{open_keystore, Config, DnsChoice, Enxame, Event};
+use enxame_core::{open_keystore, BridgeRole, Config, DnsChoice, Enxame, Event, MediaBridge};
 use flutter_rust_bridge::frb;
 
 use crate::frb_generated::StreamSink;
 
 static NODE: RwLock<Option<Enxame>> = RwLock::new(None);
+
+/// A ponte de mídia da chamada em curso (uma chamada por vez).
+static BRIDGE: Mutex<Option<MediaBridge>> = Mutex::new(None);
 
 type Res<T> = Result<T, String>;
 
@@ -470,6 +477,73 @@ pub async fn send_call_signal(contact: String, payload: String) -> Res<()> {
         .send_call_signal(&contact, payload.as_bytes())
         .await
         .map_err(err)
+}
+
+/// Servidor TURN local de uma chamada (vai em `iceServers` do WebRTC).
+pub struct MediaBridgeInfo {
+    pub url: String,
+    pub username: String,
+    pub credential: String,
+}
+
+/// Medidas da ponte de mídia, sem endereços.
+pub struct MediaBridgeStats {
+    /// A conexão `enxame/media/1` com o contato já abriu.
+    pub linked: bool,
+    /// `Some(true)` = caminho direto, `Some(false)` = por relay do iroh.
+    pub direct: Option<bool>,
+    pub max_datagram: Option<u32>,
+    pub sent: u64,
+    pub received: u64,
+    pub dropped_too_large: u64,
+    pub dropped_other: u64,
+}
+
+/// Sobe a ponte da chamada com `contact`. `caller`: quem ligou disca; quem atendeu espera, então
+/// deve chamar isto antes de responder `accept`. Uma ponte anterior ainda aberta é fechada.
+pub async fn start_media_bridge(contact: String, caller: bool) -> Res<MediaBridgeInfo> {
+    stop_media_bridge().await;
+    let role = if caller {
+        BridgeRole::Caller
+    } else {
+        BridgeRole::Callee
+    };
+    let bridge = node()?
+        .media_bridge_start(&contact, role)
+        .await
+        .map_err(err)?;
+    let info = MediaBridgeInfo {
+        url: bridge.url.clone(),
+        username: bridge.username.clone(),
+        credential: bridge.credential.clone(),
+    };
+    *BRIDGE
+        .lock()
+        .map_err(|_| "estado interno corrompido".to_owned())? = Some(bridge);
+    Ok(info)
+}
+
+pub async fn stop_media_bridge() {
+    let old = BRIDGE.lock().ok().and_then(|mut b| b.take());
+    if let Some(b) = old {
+        b.close().await;
+    }
+}
+
+/// `None` se não há ponte.
+pub fn media_bridge_stats() -> Option<MediaBridgeStats> {
+    let guard = BRIDGE.lock().ok()?;
+    let b = guard.as_ref()?;
+    let st = b.stats();
+    Some(MediaBridgeStats {
+        linked: b.is_linked(),
+        direct: b.is_direct(),
+        max_datagram: b.max_datagram_size().map(|n| n as u32),
+        sent: st.sent,
+        received: st.received,
+        dropped_too_large: st.dropped_too_large,
+        dropped_other: st.dropped_not_ready + st.dropped_send_error + st.dropped_bad_frame,
+    })
 }
 
 // --------------------------------------------------------------------------- arquivos
