@@ -111,3 +111,15 @@ Teste: `cargo test -p enxame-core --test media` (nós in-process, **clientes TUR
 - `cargo clippy --workspace --all-targets -- -D warnings` e `cargo fmt --check` limpos.
 - Não feito aqui: `cargo deny` (não está instalado nesta máquina; rodar na CI/antes de fechar o 7.2: `turn` traz
   `ring`, `md-5`, `webrtc-util`); mídia real do libwebrtc passando pela ponte (etapa 4).
+
+## Etapa 3 — MTU por caminho (2026-10-29)
+
+- Teste `relay_only_path_carries_an_srtp_sized_packet` (relay local do iroh, sem transporte IP): `max_datagram_size`
+  = 1414 B e pacotes de 200, 900, 1200, 1232 e 1300 B chegam 10/10, sem descarte por tamanho. No caminho direto
+  em loopback também são 1414 B, estáveis por 4 s de tráfego.
+- Limite do que foi medido: é loopback/relay local. Em redes reais a descoberta de MTU do QUIC pode ficar perto do
+  piso (1200 B, ~1160 B úteis), abaixo dos ~1232 B de um RTP cheio com SRTP. **Fragmentação (`[idx][total]`) não
+  foi implementada**: sem dado real não há como saber se é preciso. O contador `dropped_too_large` da ponte
+  entra nas métricas da etapa 4; se aparecer no campo (etapa 5), implementa-se a fragmentação ou reduz-se o MTU
+  do libwebrtc.
+- Não medido: relay público do n0 (limite de datagrama pode ser menor) — fica para a etapa 6.

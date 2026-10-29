@@ -237,3 +237,97 @@ async fn explore_max_datagram_size_over_time() {
         let _ = step;
     }
 }
+
+/// Sem transporte IP o único caminho é o relay (relay local de teste): mede quanto cabe num
+/// datagrama por esse caminho (Fase 7.2, etapa 3) e se um pacote RTP/SRTP típico passa inteiro.
+#[tokio::test(flavor = "multi_thread")]
+async fn relay_only_path_carries_an_srtp_sized_packet() {
+    use enxame_core::Identity;
+    use iroh::{endpoint::presets, tls::CaTlsConfig, Endpoint, RelayMode};
+
+    let (relay_map, _url, _guard) = iroh::test_utils::run_relay_server().await.unwrap();
+
+    async fn relay_node(name: &str, map: &iroh::RelayMap) -> (Enxame, TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config::for_tests(dir.path().to_path_buf(), name);
+        let store = FileKeyStore::new(dir.path().join("identity.key"));
+        let (identity, _) = Identity::load_or_create(&store).unwrap();
+        let endpoint = Endpoint::builder(presets::Minimal)
+            .relay_mode(RelayMode::Custom(map.clone()))
+            .ca_tls_config(CaTlsConfig::insecure_skip_verify())
+            .clear_ip_transports()
+            .secret_key(identity.device_secret().clone())
+            .bind()
+            .await
+            .unwrap();
+        endpoint.online().await;
+        let node = Enxame::start_with_endpoint(cfg, identity, "teste", endpoint)
+            .await
+            .unwrap();
+        (node, dir)
+    }
+
+    let ((a, _da), (b, _db)) = (
+        relay_node("alice", &relay_map).await,
+        relay_node("bob", &relay_map).await,
+    );
+    befriend(&a, &b).await;
+    let bridge_b = b
+        .media_bridge_start("alice", BridgeRole::Callee)
+        .await
+        .unwrap();
+    let bridge_a = a
+        .media_bridge_start("bob", BridgeRole::Caller)
+        .await
+        .unwrap();
+    linked(&bridge_a).await;
+    linked(&bridge_b).await;
+    assert_eq!(bridge_a.is_direct(), Some(false), "devia ir pelo relay");
+
+    let (ca, cb) = (
+        client(&bridge_a, &bridge_a.credential).await,
+        client(&bridge_b, &bridge_b.credential).await,
+    );
+    let (ra, rb) = (ca.allocate().await.unwrap(), cb.allocate().await.unwrap());
+    let (caller, callee): (SocketAddr, SocketAddr) =
+        (CALLER.parse().unwrap(), CALLEE.parse().unwrap());
+    ra.send_to(b"hello", callee).await.unwrap();
+    rb.send_to(b"hello", caller).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    println!(
+        "relay: max_datagram A={:?} B={:?}",
+        bridge_a.max_datagram_size(),
+        bridge_b.max_datagram_size()
+    );
+    // 1232 B = RTP de 1200 B + 32 B de SRTP/TURN; é o pior caso típico do libwebrtc.
+    let mut buf = vec![0u8; 2000];
+    // O "hello" de aquecimento ainda está na fila do bob.
+    let (n, _) = rb.recv_from(&mut buf).await.unwrap();
+    assert_eq!(n, 5);
+    for size in [200usize, 900, 1200, 1232, 1300] {
+        let before = bridge_a.stats();
+        let mut got = 0;
+        for _ in 0..10 {
+            ra.send_to(&vec![9u8; size], callee).await.unwrap();
+            if let Ok(Ok((n, _))) =
+                tokio::time::timeout(Duration::from_millis(500), rb.recv_from(&mut buf)).await
+            {
+                if n == size {
+                    got += 1;
+                }
+            }
+        }
+        let st = bridge_a.stats();
+        println!(
+            "relay: {size:>4} B -> chegaram {got}/10, descartados por tamanho {}",
+            st.dropped_too_large - before.dropped_too_large
+        );
+        if size <= 1232 {
+            assert_eq!(got, 10, "pacote de {size} B não passou pelo relay");
+        }
+    }
+    println!("relay: A={:?} B={:?}", bridge_a.stats(), bridge_b.stats());
+    bridge_a.close().await;
+    bridge_b.close().await;
+}
