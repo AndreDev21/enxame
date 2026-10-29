@@ -50,8 +50,8 @@ libwebrtc ──UDP── 127.0.0.1:P (TURN local, crate turn) ── Conn próp
 |---|---|---|
 | 1 ✅ | **Spike do libwebrtc (feito em 2026-10-26, ver abaixo):** `turn` em `127.0.0.1` com `RelayAddressGenerator` que faz eco entre dois peers no mesmo processo (sem iroh) | `integration_test` Linux: duas conexões WebRTC conectam **só** por candidatos `relay` (filtrando host/srflx) e trocam áudio. Responde a incógnita "o libwebrtc aceita TURN em loopback?" |
 | 2 ✅ | **Ponte sobre o iroh (feita em 2026-10-26, ver abaixo):** ALPN `enxame/media/1`, `Conn` com datagramas, endereços virtuais | Teste em `crates/enxame-core/tests/media.rs`: dois nós in-process, pacotes UDP de 1200 B ida e volta; `proptest` do quadro; contagem de descartes |
-| 3 | **MTU:** medir `max_datagram_size` por caminho (direto, relay local do netsim); se o RTP não couber, fragmentar com `[idx][total]` | Tabela de tamanhos no relatório; nenhum pacote descartado por tamanho |
-| 4 | **Integração no app:** FFI, `iceServers`, política da 1ª tentativa, mensagens e métricas (`ladder: relay`, caminho do iroh) | `call_test` com os dois controladores usando a ponte: conecta com `dropAllIce` nos candidatos diretos |
+| 3 ✅ | **MTU:** medir `max_datagram_size` por caminho (direto, relay local do netsim); se o RTP não couber, fragmentar com `[idx][total]` | Tabela de tamanhos no relatório; nenhum pacote descartado por tamanho |
+| 4 ✅ (sem teste com mídia real) | **Integração no app:** FFI, `iceServers`, política da 1ª tentativa, mensagens e métricas (`ladder: relay`, caminho do iroh) | `call_test` com os dois controladores usando a ponte: conecta com `dropAllIce` nos candidatos diretos |
 | 5 | **Campo com dois CGNAT:** Windows no hotspot ↔ outro celular/operadora, ou netsim simétrico | Voz e vídeo sem configuração; medições do 7.1 (RTT, perda, trocas de caminho) |
 | 6 | **Medição contra `iroh-relay` próprio no Brasil** (VM barata), não contra o n0, para isolar arquitetura de limite e distância | Latência adicional < 80 ms; sem corte de áudio na subida relay → direto |
 
